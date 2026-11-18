@@ -29,6 +29,9 @@
     <Compile Include="History.fs" />
     <Compile Include="Document.fs" />
     <Compile Include="Editor.fs" />
+    <Compile Include="Commands.fs" />
+    <Compile Include="Keymap.fs" />
+    <Compile Include="Language.fs" />
     <InternalsVisibleTo Include="Ranvier.Plume.Tests" />
     <None Include="../../LICENSE" Pack="true" PackagePath="licenses/Ranvier.Plume/" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
