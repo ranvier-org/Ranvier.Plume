@@ -61,7 +61,7 @@ module internal Html =
 [<Sealed>]
 type internal MarkupCache(theme: Theme, capacity: int) =
     let classes = Dictionary<int, string> ()
-    let lines = Dictionary<string, UnsafeHtml> (StringComparer.Ordinal)
+    let lines = Dictionary<string, string> (StringComparer.Ordinal)
     let builder = StringBuilder 256
     let mutable held: Language voption = ValueNone
     let mutable hits = 0L
@@ -79,9 +79,9 @@ type internal MarkupCache(theme: Theme, capacity: int) =
         hits <- 0L
         misses <- 0L
 
-    member private _.Build(language: Language voption, line: string) : UnsafeHtml =
+    member private _.Build(language: Language voption, line: string) : string =
         match language with
-        | ValueNone -> UnsafeHtml.Trust (Html.escape line)
+        | ValueNone -> Html.escape line
         | ValueSome language ->
             builder.Clear () |> ignore
             let mutable at = 0
@@ -102,10 +102,10 @@ type internal MarkupCache(theme: Theme, capacity: int) =
                     at <- token.To
 
             Html.escapeInto builder line at line.Length
-            UnsafeHtml.Trust (builder.ToString ())
+            builder.ToString ()
 
     /// The markup of `line`: its text escaped, with a span for each token whose tag the theme gives a class.
-    member this.Markup(language: Language voption, enabled: bool, line: string) : UnsafeHtml =
+    member this.Markup(language: Language voption, enabled: bool, line: string) : string =
         let same =
             match held, language with
             | ValueSome a, ValueSome b -> obj.ReferenceEquals (a, b)
@@ -120,7 +120,7 @@ type internal MarkupCache(theme: Theme, capacity: int) =
             misses <- misses + 1L
             this.Build (language, line)
         else
-            let mutable markup = Unchecked.defaultof<UnsafeHtml>
+            let mutable markup: string = null
 
             if lines.TryGetValue (line, &markup) then
                 hits <- hits + 1L
@@ -145,6 +145,23 @@ type internal RowConfig(gutters: GutterSpec[], keys: obj[], language: Language v
     member _.Language = language
     member _.Recycle = recycle
     member _.Cache = cache
+    /// A buffer for the markup of a row.
+    member val Builder = StringBuilder 256
+
+    /// The start of each gutter's marker element, up to the words a marker adds to its class.
+    member val GutterOpen: string[] =
+        gutters
+        |> Array.mapi (fun index gutter ->
+            String.Concat (
+                "<span data-pm=\"gutter",
+                (if index = gutters.Length - 1 then " gutter-last" else ""),
+                (if String.IsNullOrEmpty gutter.Class then "" else " " + Html.escape gutter.Class)
+            ))
+
+    /// The rest of each gutter's opening tag: its width.
+    member val GutterStyle: string[] =
+        gutters
+        |> Array.map (fun gutter -> String.Concat ("\" style=\"width:", gutter.Width.ToString ("0.##", CultureInfo.InvariantCulture), "px\">"))
 
     member _.Same(other: RowConfig) : bool =
         recycle = other.Recycle
@@ -164,7 +181,9 @@ type internal RowContent =
         Line: int
         /// The distance from the sheet's top in CSS pixels.
         Top: float
-        Gutter: UnsafeHtml
+        /// The gutter markers and the line, as markup.
+        Html: string
+        /// `Html`, as the template takes it.
         Markup: UnsafeHtml
     }
 
@@ -173,8 +192,7 @@ type internal RowContent =
         | :? RowContent as content ->
             content.Line = this.Line
             && content.Top = this.Top
-            && obj.ReferenceEquals (content.Markup, this.Markup)
-            && obj.ReferenceEquals (content.Gutter, this.Gutter)
+            && String.Equals (content.Html, this.Html, StringComparison.Ordinal)
         | _ -> false
 
     override this.GetHashCode() = this.Line
@@ -225,7 +243,7 @@ module internal Rows =
         {
             Line = -1
             Top = -lineHeight
-            Gutter = emptyHtml
+            Html = ""
             Markup = emptyHtml
         }
 
@@ -340,51 +358,24 @@ module internal Rows =
 
             slots
 
-    let private gutterMarkup (window: RowWindow) (line: Line) : UnsafeHtml =
+    /// Appends the markers of the gutters, each in a box of its gutter's width. A theme rule lays the boxes out and
+    /// puts the gap before the text after the last one.
+    let private appendGutters (builder: StringBuilder) (window: RowWindow) (line: Line) =
         let gutters = window.Config.Gutters
 
-        if gutters.Length = 0 then
-            emptyHtml
-        elif gutters.Length = 1 then
-            // One gutter fills the cell: its text needs no element unless it has a class to select by.
-            match gutters[0].LineMarker window.State line with
-            | ValueSome marker when String.IsNullOrEmpty marker.Class -> UnsafeHtml.Trust (Html.escape marker.Text)
+        for index in 0 .. gutters.Length - 1 do
+            let gutter = gutters[index]
+            builder.Append (window.Config.GutterOpen[index]) |> ignore
+
+            match gutter.LineMarker window.State line with
             | ValueSome marker ->
-                UnsafeHtml.Trust (
-                    String.Concat ("<span data-pm=\"", Html.escape gutters[0].Class, " ", Html.escape marker.Class, "\">", Html.escape marker.Text, "</span>")
-                )
-            | ValueNone -> emptyHtml
-        else
-            let builder = StringBuilder 128
+                if not (String.IsNullOrEmpty marker.Class) then
+                    builder.Append(' ').Append (Html.escape marker.Class) |> ignore
 
-            for gutter in gutters do
-                let width = gutter.Width.ToString ("0.##", CultureInfo.InvariantCulture)
+                builder.Append(window.Config.GutterStyle[index]).Append (Html.escape marker.Text) |> ignore
+            | ValueNone -> builder.Append (window.Config.GutterStyle[index]) |> ignore
 
-                builder
-                    .Append("<span data-pm=\"")
-                    .Append(Html.escape gutter.Class)
-                |> ignore
-
-                match gutter.LineMarker window.State line with
-                | ValueSome marker ->
-                    builder
-                        .Append(' ')
-                        .Append(Html.escape marker.Class)
-                        .Append("\" style=\"display:inline-block;width:")
-                        .Append(width)
-                        .Append("px\">")
-                        .Append(Html.escape marker.Text)
-                    |> ignore
-                | ValueNone ->
-                    builder
-                        .Append("\" style=\"display:inline-block;width:")
-                        .Append(width)
-                        .Append "px\">"
-                    |> ignore
-
-                builder.Append "</span>" |> ignore
-
-            UnsafeHtml.Trust (builder.ToString ())
+            builder.Append "</span>" |> ignore
 
     /// The content of a slot.
     let content (window: RowWindow) (slot: int) : RowContent =
@@ -406,9 +397,20 @@ module internal Rows =
                 window.Written.Value <- window.Written.Value + 1L
                 let line = Text.line number window.Text
 
+                let text = window.Markup.Markup (window.Config.Language, window.Config.Cache, line.Text)
+
+                let html =
+                    if window.Config.Gutters.Length = 0 then
+                        text
+                    else
+                        let builder = window.Config.Builder
+                        builder.Clear () |> ignore
+                        appendGutters builder window line
+                        builder.Append(text).ToString ()
+
                 {
                     Line = number
                     Top = float (number - window.Anchor) * window.LineHeight + Lead
-                    Gutter = gutterMarkup window line
-                    Markup = window.Markup.Markup (window.Config.Language, window.Config.Cache, line.Text)
+                    Html = html
+                    Markup = UnsafeHtml.Trust html
                 }

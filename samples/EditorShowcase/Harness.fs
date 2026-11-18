@@ -1,0 +1,426 @@
+/// The command line, and the scripted modes: a picture of the window, the frame benchmark, and the measurements of
+/// history memory, loading and change application. A scripted mode creates its window hidden and never shows it.
+module EditorShowcase.Harness
+
+open System
+open System.Collections.Generic
+open System.Diagnostics
+open System.Globalization
+open System.IO
+open System.Text
+open Ranvier
+open Ranvier.Dom
+open Ranvier.View
+open Ranvier.View.Dom
+open Ranvier.View.Dsl
+open Ranvier.View.WebCore.Sdl
+open Ranvier.Plume
+open Ranvier.Plume.View
+open EditorShowcase.Sample
+open EditorShowcase.Model
+open EditorShowcase.App
+
+type Mode =
+    | Interactive
+    | Shot of path: string
+    | Bench
+    | Memory
+    | Load
+    | Apply
+
+type Options =
+    { Mode: Mode
+      Width: int
+      Height: int
+      /// Timed frames of each benchmark configuration.
+      Frames: int
+      /// Lines scrolled per benchmark frame.
+      Lines: int
+      /// The file the window opens with, as an index of the explorer.
+      File: int
+      /// False to open the window with the scroll tour stopped.
+      Tour: bool }
+
+let usage =
+    """Editor showcase on Ranvier.Plume
+
+  dotnet run -c Release                 open the window
+  dotnet run -- dev                     open it under the hot reload host (Debug build)
+  dotnet run -c Release -- --shot <png> save a picture of the window, which stays hidden
+  dotnet run -c Release -- --bench      time scrolling and typing under each renderer setting, in a hidden window
+  dotnet run -c Release -- --memory     measure the memory 10,000 history items hold on the 1,000,000-line file
+  dotnet run -c Release -- --load       time building the text of the 1,000,000-line file from UTF-8 bytes
+  dotnet run -c Release -- --apply      time one change set of 10,000 ranges against 10,000 single replacements
+
+Options
+  --size <w>x<h>   window size in CSS pixels (default 1280x800)
+  --frames <n>     timed frames per benchmark configuration (default 240)
+  --lines <n>      lines scrolled per benchmark frame (default 3)
+  --open <n>       the window opens file n of the explorer (0 to 2, default 0)
+  --no-tour        the window opens with the scroll tour stopped"""
+
+let parse (argv: string[]) : Result<Options, string> =
+    let rec go (options: Options) (rest: string list) =
+        match rest with
+        | [] -> Ok options
+        | "--shot" :: path :: tail -> go { options with Mode = Shot path } tail
+        | "--bench" :: tail -> go { options with Mode = Bench } tail
+        | "--memory" :: tail -> go { options with Mode = Memory } tail
+        | "--load" :: tail -> go { options with Mode = Load } tail
+        | "--apply" :: tail -> go { options with Mode = Apply } tail
+        | "--size" :: size :: tail ->
+            match size.Split 'x' with
+            | [| w; h |] ->
+                match Int32.TryParse w, Int32.TryParse h with
+                | (true, width), (true, height) when width >= 640 && height >= 400 -> go { options with Width = width; Height = height } tail
+                | _ -> Error $"--size takes <width>x<height> of at least 640x400, not '{size}'"
+            | _ -> Error $"--size takes <width>x<height>, not '{size}'"
+        | "--frames" :: count :: tail ->
+            match Int32.TryParse count with
+            | true, frames when frames >= 10 && frames <= 100000 -> go { options with Frames = frames } tail
+            | _ -> Error $"--frames takes a number from 10 to 100000, not '{count}'"
+        | "--lines" :: count :: tail ->
+            match Int32.TryParse count with
+            | true, lines when lines >= 1 && lines <= 100000 -> go { options with Lines = lines } tail
+            | _ -> Error $"--lines takes a number from 1 to 100000, not '{count}'"
+        | "--no-tour" :: tail -> go { options with Tour = false } tail
+        | "--open" :: index :: tail ->
+            match Int32.TryParse index with
+            | true, file when file >= 0 && file <= 2 -> go { options with File = file } tail
+            | _ -> Error $"--open takes 0, 1 or 2, not '{index}'"
+        | other :: _ -> Error $"unknown argument '{other}'"
+
+    go { Mode = Interactive; Width = WindowW; Height = WindowH; Frames = 240; Lines = 3; File = 0; Tour = true } (List.ofArray argv)
+
+exception private Failed of string
+
+let private say (text: string) = Console.WriteLine text
+let private milliseconds (ticks: int64) = float ticks * 1000.0 / float Stopwatch.Frequency
+let private fixed3 (value: float) = value.ToString("F3", CultureInfo.InvariantCulture)
+
+let private percentile (sorted: float[]) (fraction: float) =
+    sorted[min (sorted.Length - 1) (int (fraction * float sorted.Length))]
+
+/// Stops the run when an element carries a Ranvier.Css class that has no rule in the sheet the engine holds:
+/// the class then came from a `styles { ... }` whose rules nothing handed to the sheet.
+let private requireRules (window: Window) (session: Session) =
+    let stylesheet = session.Stylesheet :?> CSSStyleSheet
+    let sheet = LiveSheet.held stylesheet
+    let nodes = window.Host.Document.querySelectorAll "[class]"
+    let seen = HashSet<string>()
+    let missing = ResizeArray<string>()
+
+    for i in 0u .. nodes.length - 1u do
+        match nodes.item i with
+        | :? Element as element ->
+            for name in (element.getAttribute "class").Split(' ', StringSplitOptions.RemoveEmptyEntries) do
+                if name.StartsWith "r-" && seen.Add name && not (sheet.Contains("." + name)) then
+                    missing.Add $"{name} on <{element.tagName.ToLowerInvariant()}>"
+        | _ -> ()
+
+    if missing.Count > 0 then
+        let names = String.Join(", ", missing)
+        raise (Failed $"{missing.Count} of the {seen.Count} Ranvier.Css classes on the page have no rule in the adopted stylesheet: {names}.")
+
+    say $"  styles     {seen.Count} Ranvier.Css classes on the page, each with a rule in the constructed sheet the document adopts ({stylesheet.cssRules.length} rules read back from the engine; {editorView.Styles.Length} of the classes were handed over by Ranvier.Plume.View)"
+
+/// Runs `body` on the app mounted in a hidden window. The run advances the frames.
+let private hosted (options: Options) (body: Window -> State -> EditorView -> (unit -> unit) -> unit) : int =
+    try
+        use window = Window.Create(Title, options.Width, options.Height, hidden = true)
+        let session = Session()
+        session.Auto <- false
+        session.Tour <- false
+        session.Active <- options.File
+        let props = { Window = window; Session = session }
+        let graph = window.Graph
+        let doc = window.Host.Document
+        let container = doc.createElement "div"
+        doc.body.appendChild container |> ignore
+
+        let mounted =
+            Mounting.mount graph None (fun errs -> raise (AggregateException errs)) container None (fun ctx ->
+                Program.run (Component.render app props) ctx.Backend)
+
+        try
+            let state = session.State :?> State
+
+            /// One frame of the app, then one turn of the window's loop.
+            let step () =
+                state.Frame(1.0 / 60.0)
+
+                if not (window.Step(timeout = 0)) then
+                    raise (Failed "the window closed during the run")
+
+            // The first frames size the row pool and measure the font.
+            for _ in 1..12 do
+                step ()
+
+            let view =
+                match currentView state with
+                | ValueSome view -> view
+                | ValueNone -> raise (Failed "the text view did not mount")
+
+            let struct (pixelW, pixelH) = window.PixelSize
+            let height = graph.Run(fun () -> view.Height.Value)
+            let charWidth = graph.Run(fun () -> view.CharWidth.Value)
+            say $"  window     {options.Width} x {options.Height} CSS px asked for, {pixelW} x {pixelH} device px (Window.PixelSize), created hidden"
+            say $"  compositor GPU compositing {window.IsGpuComposited} (Window.IsGpuComposited)"
+            say $"  text view  {fixed3 height} CSS px high (clientHeight), {int (Math.Ceiling(height / view.Theme.LineHeight)) + 13} row elements, character advance {fixed3 charWidth} CSS px (64 characters measured with getBoundingClientRect)"
+            requireRules window session
+            body window state view step
+            0
+        finally
+            graph.Run(fun () -> mounted.Dispose())
+            container.remove ()
+    with
+    | Failed reason ->
+        Console.Error.WriteLine $"FAIL {reason}"
+        1
+
+let private shot (options: Options) (path: string) =
+    say "Editor showcase on Ranvier.Plume --shot"
+
+    hosted options (fun window state view step ->
+        let editor = state.Files[state.Active.Peek].Editor
+
+        window.Graph.Run(fun () ->
+            view.ScrollTo(21.0 * view.Theme.LineHeight)
+            let text = editor.Text.Value
+            let line = Text.line (min 35 (text.Lines - 1)) text
+            editor.Dispatch [ Tx.selection (EditorSelection.single (min line.To (line.From + 8)) (min line.To (line.From + 14))) ])
+
+        for _ in 1..4 do
+            step ()
+
+        window.Present()
+        let struct (width, height, pixels) = window.ReadPixels()
+        Png.PngEncoder.saveRgba8 path width height pixels
+        say $"saved {Path.GetFullPath path} ({width} x {height} device px, the composited window read back with Window.ReadPixels)")
+
+let private bench (options: Options) =
+    say "Editor showcase on Ranvier.Plume --bench"
+
+    hosted options (fun window state view step ->
+        let graph = window.Graph
+        let editor = state.Files[state.Active.Peek].Editor
+        let lineHeight = view.Theme.LineHeight
+
+        let scrollLines () =
+            graph.Run(fun () -> view.ScrollBy(float options.Lines * lineHeight))
+
+        let scrollPixels () = graph.Run(fun () -> view.ScrollBy 7.0)
+
+        let typeCharacter () =
+            graph.Run(fun () -> Commands.insertText "x" editor |> ignore)
+
+        let runs =
+            [ $"lines x{options.Lines}", scrollLines, true, true, true
+              $"lines x{options.Lines}", scrollLines, false, true, true
+              $"lines x{options.Lines}", scrollLines, true, false, true
+              $"lines x{options.Lines}", scrollLines, false, false, true
+              $"lines x{options.Lines}", scrollLines, true, true, false
+              "7 px", scrollPixels, true, true, true
+              "7 px", scrollPixels, true, true, false
+              "typing", typeCharacter, true, true, true
+              "typing", typeCharacter, true, false, true ]
+
+        say $"  workloads  'lines x{options.Lines}' scrolls {options.Lines} line(s) a frame, '7 px' scrolls 7 CSS px a frame, 'typing' inserts one character a frame at the cursor;"
+        say $"             all on the 1,000,000-line file, {options.Frames} timed frames after 30 untimed ones"
+        say "  dispatch   Stopwatch around the workload's call: EditorView.ScrollBy (a signal write), or Commands.insertText (the transaction, the log, the fold, the row and its DOM write)"
+        say "  app ms     Stopwatch around State.Frame: EditorView.RunFrame, then Api.flush: the scroll commit, the row lookup, the row effects, their DOM writes and the scrollTop write"
+        say "  turn ms    Stopwatch around Window.Step(timeout = 0) after it: events, layout, paint and present of a hidden window, which no display paces"
+        say "  rows       rows the lookup computed in the frame (EditorView.RowsWritten), mean over the timed frames"
+        say ""
+        say "  workload   recycling  cache  layer   rows/frame   dispatch ms mean  median     p95    app ms mean  median     p95   turn ms mean  median     p95   total mean"
+
+        for name, work, recycle, cache, layer in runs do
+            graph.Run(fun () ->
+                if state.Recycle.Peek <> recycle then setRecycle state recycle
+                if state.Cached.Peek <> cache then setCached state cache
+                if state.Layer.Peek <> layer then setLayer state layer
+                view.ResetMarkup()
+                view.ScrollTo(1000.0 * lineHeight)
+                let start = (Text.line 1010 editor.Text.Value).From
+                editor.Dispatch [ Tx.selection (EditorSelection.single start start) ])
+
+            let dispatch = Array.zeroCreate<float> options.Frames
+            let app = Array.zeroCreate<float> options.Frames
+            let turn = Array.zeroCreate<float> options.Frames
+            let mutable rows = 0L
+
+            for frame in -30 .. options.Frames - 1 do
+                let written = view.RowsWritten()
+                let t0 = Stopwatch.GetTimestamp()
+                work ()
+                let t1 = Stopwatch.GetTimestamp()
+                state.Frame(1.0 / 60.0)
+                let t2 = Stopwatch.GetTimestamp()
+
+                if not (window.Step(timeout = 0)) then
+                    raise (Failed "the window closed during the run")
+
+                let t3 = Stopwatch.GetTimestamp()
+
+                if frame >= 0 then
+                    dispatch[frame] <- milliseconds (t1 - t0)
+                    app[frame] <- milliseconds (t2 - t1)
+                    turn[frame] <- milliseconds (t3 - t2)
+                    rows <- rows + (view.RowsWritten() - written)
+
+            let line (samples: float[]) =
+                let sorted = Array.sort samples
+                $"{fixed3 (Array.average samples), 12}  {fixed3 (percentile sorted 0.5), 6}  {fixed3 (percentile sorted 0.95), 6}"
+
+            let onOff (value: bool) = if value then "on " else "off"
+            let perFrame = (float rows / float options.Frames).ToString("F1", CultureInfo.InvariantCulture)
+            let total = Array.average dispatch + Array.average app + Array.average turn
+            say $"  {name, -9}  {onOff recycle}        {onOff cache}    {onOff layer}  {perFrame, 10}  {line dispatch}  {line app}  {line turn}  {fixed3 total, 10}"
+
+        say ""
+        say "One run on one machine. Compare two runs only when both came from this benchmark at the same window size.")
+
+/// The lines of the 1,000,000-line file.
+let private largeFile () : ResizeArray<string> = (Session()).Files[0].Lines
+
+/// Dossier 7.2: what 10,000 history items hold.
+let private memory () =
+    say "Editor showcase on Ranvier.Plume --memory"
+    let lines = largeFile ()
+    use graph = new Graph()
+    use _activation = graph.Activate()
+    let count = 10_000
+
+    let measure () =
+        GC.Collect()
+        GC.WaitForPendingFinalizers()
+        GC.GetTotalMemory true
+
+    let document =
+        Document.createWith
+            { Text = Text.ofLines lines
+              History = { History.defaults with Depth = count * 2 }
+              Clock = fun () -> Environment.TickCount64 }
+
+    let editor = Editor.create document []
+    // One edit and its undo first, so the measurement holds no start-up cost.
+    editor.Dispatch [ Tx.change { From = 0; To = 0; Insert = Text.ofString "x" }; Tx.isolateHistory ]
+    Editor.undo editor |> ignore
+    let before = measure ()
+    let watch = Stopwatch.StartNew()
+
+    for index in 0 .. count - 1 do
+        let line = Text.line (int (int64 index * 7919L % 1_000_000L)) document.Text.Value
+        editor.Dispatch [ Tx.change { From = line.To; To = line.To; Insert = Text.ofString "x" }; Tx.isolateHistory; Tx.userEvent "input.type" ]
+
+    watch.Stop()
+    let afterEdits = measure ()
+    document.MarkSaved()
+    let afterSave = measure ()
+    let items = document.UndoDepth.Value
+    say $"  workload   {grouped count} single-character insertions at lines (i * 7919) mod 1,000,000 of the {grouped lines.Count}-line file, each its own history item ({grouped items} items held), in {fixed3 watch.Elapsed.TotalMilliseconds} ms"
+    say "  measured   GC.GetTotalMemory(true) after a full collection, before the insertions, after them, and after Document.MarkSaved"
+    let each (bytes: int64) = (float bytes / float count).ToString("F1", CultureInfo.InvariantCulture)
+    say $"  with the text at the start still held as the saved text   {grouped (int (afterEdits - before))} bytes, {each (afterEdits - before)} bytes per insertion"
+    say $"  after MarkSaved: the history, the log and the current text {grouped (int (afterSave - before))} bytes, {each (afterSave - before)} bytes per insertion"
+    say "  The first figure holds the leaves of the saved text that the current text no longer shares; it is bounded by"
+    say "  the size of the file, not by the number of edits. The second is what history costs."
+    GC.KeepAlive editor
+    0
+
+/// Dossier 7.3: building the text from bytes, with the scalar and the vectorised line scan.
+let private load () =
+    say "Editor showcase on Ranvier.Plume --load"
+    let lines = largeFile ()
+    let bytes = Encoding.UTF8.GetBytes(String.Join('\n', lines))
+
+    let time (build: unit -> Text) =
+        for _ in 1..3 do
+            build () |> ignore
+
+        let samples =
+            Array.init 10 (fun _ ->
+                GC.Collect()
+                let started = Stopwatch.GetTimestamp()
+                let text = build ()
+                let elapsed = milliseconds (Stopwatch.GetTimestamp() - started)
+
+                if text.Lines <> lines.Count then
+                    raise (Failed $"the text has {text.Lines} lines, not {lines.Count}")
+
+                elapsed)
+            |> Array.sort
+
+        samples[samples.Length / 2], samples[0]
+
+    let scalarMedian, scalarBest = time (fun () -> Text.ofUtf8Scalar (ReadOnlySpan<byte> bytes))
+    let vectorMedian, vectorBest = time (fun () -> Text.ofUtf8 (ReadOnlySpan<byte> bytes))
+    say $"  workload   Text.ofUtf8 over the {grouped bytes.Length} UTF-8 bytes of the {grouped lines.Count}-line file; 10 runs after 3 untimed ones"
+    say $"  scalar scan       median {fixed3 scalarMedian} ms, best {fixed3 scalarBest} ms"
+    say $"  vectorised scan   median {fixed3 vectorMedian} ms, best {fixed3 vectorBest} ms"
+    let ratio = (scalarMedian / vectorMedian).ToString("F2", CultureInfo.InvariantCulture)
+    say $"  ratio             scalar / vectorised = {ratio} (median)"
+    0
+
+/// One change set of many ranges against the same replacements made one at a time.
+let private apply () =
+    say "Editor showcase on Ranvier.Plume --apply"
+    let lines = largeFile ()
+    let doc = Text.ofLines lines
+    let count = 10_000
+
+    let specs =
+        [ for index in 0 .. count - 1 do
+              let line = Text.line (index * 100) doc
+              { From = line.From; To = line.From + 1; Insert = Text.ofString "X" } ]
+
+    let time (run: unit -> Text) =
+        run () |> ignore
+
+        let samples =
+            Array.init 7 (fun _ ->
+                GC.Collect()
+                let started = Stopwatch.GetTimestamp()
+                run () |> ignore
+                milliseconds (Stopwatch.GetTimestamp() - started))
+            |> Array.sort
+
+        samples[samples.Length / 2]
+
+    let changes = ChangeSet.ofSpecs doc specs
+    let asSet = time (fun () -> ChangeSet.apply doc changes)
+
+    let oneByOne =
+        time (fun () ->
+            let mutable text = doc
+
+            for spec in specs do
+                text <- Text.replace spec.From spec.To spec.Insert text
+
+            text)
+
+    let build = time (fun () -> ChangeSet.apply doc (ChangeSet.ofSpecs doc specs))
+
+    if not (Text.contentEquals (ChangeSet.apply doc changes) (List.fold (fun text (spec: ChangeSpec) -> Text.replace spec.From spec.To spec.Insert text) doc specs)) then
+        raise (Failed "the change set and the single replacements give different texts")
+
+    say $"  workload   {grouped count} one-character replacements, one every 100 lines of the {grouped lines.Count}-line file; median of 7 runs after one untimed"
+    say $"  ChangeSet.apply of one set of {grouped count} ranges   {fixed3 asSet} ms"
+    say $"  ChangeSet.ofSpecs and apply                    {fixed3 build} ms"
+    say $"  {grouped count} calls of Text.replace               {fixed3 oneByOne} ms"
+    0
+
+/// Runs a scripted mode and returns the exit code: 0 when the run finished, 1 when it found something wrong.
+let run (options: Options) : int =
+    try
+        match options.Mode with
+        | Shot path -> shot options path
+        | Bench -> bench options
+        | Memory -> memory ()
+        | Load -> load ()
+        | Apply -> apply ()
+        | Interactive -> invalidOp "the window is opened by Program"
+    with
+    | Failed reason ->
+        Console.Error.WriteLine $"FAIL {reason}"
+        1

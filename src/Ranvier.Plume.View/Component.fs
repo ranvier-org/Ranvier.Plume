@@ -256,10 +256,7 @@ module internal Surface =
         // request before it.
         Api.createEffect (fun () ->
             if scrollTarget.Value <> scroll.Value then
-                Frames.frame scheduler (fun _ ->
-                    measure ()
-                    commit ())
-                |> ignore)
+                Frames.frame scheduler (fun _ -> commit ()) |> ignore)
 
         // The scroll offset goes straight to the element. Through a Ranvier.Css reader on the sheet it would be an
         // inherited variable, and a change to it restyles every row under the sheet.
@@ -282,15 +279,17 @@ module internal Surface =
             if visible > 0.0 then
                 editor.PageLines.Value <- max 1 (int (visible / lineHeight) - 1))
 
-        // The viewport is measured in every frame the view runs, and twice a second while it rests.
-        let rec poll () =
+
+        // The viewport is measured when it is mounted, soon after, and then twice a second. A frame measures
+        // nothing: a read of the layout after the writes of a transaction would lay the page out a second time.
+        let rec poll (delay: float) =
             Api.runWithOwner owner (fun () ->
-                Frames.timeout scheduler 500.0 (fun () ->
+                Frames.timeout scheduler delay (fun () ->
                     measure ()
-                    poll ())
+                    poll 500.0)
                 |> ignore)
 
-        poll ()
+        poll 50.0
 
         let reveal (position: int) =
             let text = Api.untrack (fun () -> editor.Text.Value)
@@ -327,7 +326,18 @@ module internal Surface =
             Api.createMemoWith (fun (_: LayerInstance[] voption) ->
                 layers.Value
                 |> Array.map (fun spec ->
-                    let markers = Api.createMemo (fun (_: LayerMarker[] voption) -> spec.Markers surface.View)
+                    let markers =
+                        Api.createMemo (fun (previous: LayerMarker[] voption) ->
+                            let next = spec.Markers surface.View
+
+                            // The same rectangles are the same value, so their elements are left alone.
+                            match previous with
+                            | ValueSome before when
+                                before.Length = next.Length
+                                && Array.forall2 (fun (a: LayerMarker) (b: LayerMarker) -> a.Rect = b.Rect && a.Class = b.Class) before next
+                                ->
+                                before
+                            | _ -> next)
 
                     let rec slots: Memo<MarkerSlot[]> =
                         Api.createMemo (fun (previous: MarkerSlot[] voption) ->
@@ -408,12 +418,10 @@ module internal Surface =
                             Width = width
                             Height = lineHeight
                         }
-                RunFrame =
-                    fun () ->
-                        Api.batch (fun () ->
-                            measure ()
-                            commit ())
+                RunFrame = fun () -> Api.batch commit
                 RowsWritten = fun () -> written.Value
+                MarkupStats = fun () -> struct (markup.Hits, markup.Misses)
+                ResetMarkup = fun () -> markup.Reset ()
                 PluginValue =
                     fun id ->
                         match pluginValues.Value.TryGetValue id with
@@ -646,17 +654,8 @@ module EditorView =
                 Css.overflow CssValue.Overflow.hidden
                 Css.contain CssValue.Contain.strict
                 Css.top (fun (slot: RowSlot) -> Css.px (slot.Surface.Rows.Get slot.Slot).Top)
-            }
-
-        let gutterCell =
-            utility {
-                Css.display CssValue.Display.inlineBlock
-                Css.marginRight (Css.px 24.)
-                Css.textAlign CssValue.TextAlign.right
-                Declaration.create "color" theme.Faint
-                Css.width (fun (slot: RowSlot) -> Css.px (max 0.0 (slot.Surface.View.GutterWidth.Value - 24.)))
-                whenActive (fun (slot: RowSlot) -> slot.Surface.IsActive.Get (slot.Surface.Rows.Get slot.Slot).Line) { Declaration.create "color" theme.Ink }
-                whenActive (fun (slot: RowSlot) -> slot.Surface.View.GutterWidth.Value <= 0.0) { Css.display CssValue.Display.none }
+                // The gutter markers of the main cursor's line take the text colour through a variable of the row.
+                whenActive (fun (slot: RowSlot) -> slot.Surface.IsActive.Get (slot.Surface.Rows.Get slot.Slot).Line) { Declaration.create "--pm-gutter-ink" theme.Ink }
             }
 
         let markerOf (slot: MarkerSlot) : LayerMarker voption =
@@ -719,19 +718,16 @@ module EditorView =
                 Css.height (fun (surface: Surface) -> Css.px surface.ThumbHeight.Value)
             }
 
-        // A row of the pool: the gutter cell and the line, each one markup slot. A row is an instance with its own
-        // render effect, so a change to its content re-reads the bindings of this row alone.
+        // A row of the pool: one markup slot holding the gutter markers and the line. A row is an instance with its
+        // own render effect, so a change to its content re-reads the bindings of this row alone. One slot costs the
+        // engine less than a cell for the markers beside a slot for the text.
         let rowView: TemplateView<RowSlot> =
-            div (div.batch (styles { row }), div.attribute ("data-pm", "row")) {
-                span (
-                    span.batch (styles { gutterCell }),
-                    span.attribute ("data-pm", "gutter"),
-                    span.unsafeHtml (fun (slot: RowSlot) -> (slot.Surface.Rows.Get slot.Slot).Gutter)
-                ) {
-                    ()
-                }
-
-                span (span.attribute ("data-pm", "text"), span.unsafeHtml (fun (slot: RowSlot) -> (slot.Surface.Rows.Get slot.Slot).Markup)) { () }
+            div (
+                div.batch (styles { row }),
+                div.attribute ("data-pm", "row"),
+                div.unsafeHtml (fun (slot: RowSlot) -> (slot.Surface.Rows.Get slot.Slot).Markup)
+            ) {
+                ()
             }
 
         let markerView: TemplateView<MarkerSlot> =
@@ -816,6 +812,18 @@ module EditorView =
                 yield Rule.style (under "[data-pm~=\"cursor\"]") [ Declaration.create "background-color" theme.Accent ]
                 yield Rule.style (under "[data-pm~=\"selection\"]") [ Declaration.create "background-color" theme.Selection ]
                 yield Rule.style (under "[data-pm~=\"active-line\"]") [ Declaration.create "background-color" theme.ActiveLine ]
+
+                yield
+                    Rule.style
+                        (under "[data-pm~=\"gutter\"]")
+                        [
+                            Declaration.create "display" "inline-block"
+                            Declaration.create "text-align" "right"
+                            Declaration.create "color" (String.Concat ("var(--pm-gutter-ink, ", theme.Faint, ")"))
+                        ]
+
+                // The text starts 24 CSS pixels after the last gutter.
+                yield Rule.style (under "[data-pm~=\"gutter-last\"]") [ Declaration.create "margin-right" "24px" ]
 
                 for _, name, declarations in theme.Tokens do
                     yield

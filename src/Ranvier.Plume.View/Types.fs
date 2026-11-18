@@ -84,11 +84,16 @@ type EditorView =
         /// The rectangle of the character at an offset, on the sheet. A tracked read: a layer that calls it follows
         /// the text, the font and the sheet.
         CoordsAtPos: int -> Rect
-        /// Runs the work of a frame now: measures the viewport and lays the rows out for the scroll position asked
-        /// for. A scripted run calls it in place of the frame callback.
+        /// Runs the work of a frame now: lays the rows out for the scroll position asked for. A scripted run calls it
+        /// in place of the frame callback.
         RunFrame: unit -> unit
         /// The number of rows computed since the view was mounted.
         RowsWritten: unit -> int64
+        /// The lines whose markup came from the cache, and the lines whose markup was built, since the cache was
+        /// last emptied.
+        MarkupStats: unit -> struct (int64 * int64)
+        /// Empties the markup cache and its counts.
+        ResetMarkup: unit -> unit
         /// The value a view plugin made for the view, by the plugin's id. A tracked read.
         PluginValue: int -> obj voption
     }

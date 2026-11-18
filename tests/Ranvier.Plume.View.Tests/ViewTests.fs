@@ -22,15 +22,14 @@ let private standard: Extension list =
 let private insert (at: int) (text: string) : TxSpec =
     Tx.change { From = at; To = at; Insert = Text.ofString text }
 
-let private textOf (row: Element) : string =
-    match row.querySelector "[data-pm=text]" with
+let private gutterOf (row: Element) : string =
+    match row.querySelector "[data-pm~=gutter]" with
     | null -> ""
     | cell -> cell.textContent
 
-let private gutterOf (row: Element) : string =
-    match row.querySelector "[data-pm=gutter]" with
-    | null -> ""
-    | cell -> cell.textContent
+/// The line a row shows: its text after the gutter markers.
+let private textOf (row: Element) : string =
+    row.textContent.Substring (gutterOf row).Length
 
 /// The elements of `selector` that are laid out with an area.
 let private shown (mounted: Mounted) (selector: string) : DOMRect[] =
@@ -326,7 +325,6 @@ let tests =
                             Array.empty)
 
                 withView [ "let x = 1 < 2"; "plain & simple" ] [ Language.extension language ] 800 (fun mounted ->
-                    let first = mounted.Rows[0].querySelector "[data-pm=text]"
-                    Expect.equal first.innerHTML "<span class=\"t1\">let</span> x = 1 &lt; 2" "a keyword span, and escaped text"
+                    Expect.equal mounted.Rows[0].innerHTML "<span class=\"t1\">let</span> x = 1 &lt; 2" "a keyword span, and escaped text"
                     Expect.equal (textOf mounted.Rows[1]) "plain & simple" "escaped text reads back")
         ]

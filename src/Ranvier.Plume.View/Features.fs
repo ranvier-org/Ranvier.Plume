@@ -148,19 +148,27 @@ module Cursor =
                 let shape = view.Editor.Facet ViewFacets.cursorShape
 
                 if config.BlinkRate > 0.0 then
+                    let owner = Api.getOwner ()
+                    // When the selection last changed, on the scheduler's clock.
+                    let moved = ref (view.Scheduler.Now ())
+
                     Api.createEffect (fun () ->
                         view.Editor.Selection.Value |> ignore
-                        let owner = Api.getOwner ()
-                        lit.Value <- true
+                        moved.Value <- view.Scheduler.Now ()
 
-                        let rec arm () =
-                            Api.runWithOwner owner (fun () ->
-                                Frames.timeout view.Scheduler config.BlinkRate (fun () ->
-                                    lit.Value <- not lit.Peek
-                                    arm ())
-                                |> ignore)
+                        if not lit.Peek then
+                            lit.Value <- true)
 
-                        arm ())
+                    // One timer for the view's life: a change of selection restarts the lit half without touching it.
+                    let rec arm () =
+                        Api.runWithOwner owner (fun () ->
+                            Frames.timeout view.Scheduler config.BlinkRate (fun () ->
+                                let rested = view.Scheduler.Now () - moved.Value >= config.BlinkRate
+                                lit.Value <- (if rested then not lit.Peek else true)
+                                arm ())
+                            |> ignore)
+
+                    arm ()
 
                 struct (lit, shape))
 
