@@ -13,6 +13,7 @@
         <Compile Include="TextTests.fs" />
         <Compile Include="ChangeSetTests.fs" />
         <Compile Include="SelectionTests.fs" />
+        <Compile Include="StateTests.fs" />
         <Compile Include="Main.fs" />
     </ItemGroup>
 

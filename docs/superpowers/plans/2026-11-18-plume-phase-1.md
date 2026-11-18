@@ -382,7 +382,7 @@ module EditorState =
     val tabSize: Facet<int, int>                      // default 4
     val indentUnit: Facet<string, string>             // default four spaces
     val lineSeparator: Facet<string, string>          // default "\n"
-    val readOnly: Facet<bool, bool>                   // default false; any true wins
+    val readOnly: Facet<bool, bool>                   // default false; the first input by precedence
     val allowMultipleSelections: Facet<bool, bool>    // default false
     val reconfigure: StateEffectType<Extension>
     val appendConfig: StateEffectType<Extension>

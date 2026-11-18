@@ -24,6 +24,8 @@
     <Compile Include="ChangeSet.fs" />
     <Compile Include="Selection.fs" />
     <Compile Include="RangeSet.fs" />
+    <Compile Include="Transaction.fs" />
+    <Compile Include="State.fs" />
     <None Include="../../LICENSE" Pack="true" PackagePath="licenses/Ranvier.Plume/" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
