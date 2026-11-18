@@ -206,10 +206,9 @@ module Transaction =
                 ScrollIntoView = false
             }
 
-    /// The transaction <c>specs</c> describe for a document and a selection. Its positions in the log are 0.
-    /// <exception cref="T:System.ArgumentException">A change lies outside <c>doc</c> or overlaps another, or a change
-    /// set is combined with another change.</exception>
-    let internal build (doc: Text) (selection: EditorSelection) (specs: TxSpec list) : Transaction =
+    /// The transaction `specs` describe for a document of `length` characters, where `make` builds the change set of
+    /// its replacements and `selection` is the selection of its source. Its positions in the log are 0.
+    let internal buildWith (length: int) (make: ChangeSpec list -> ChangeSet) (selection: EditorSelection voption) (specs: TxSpec list) : Transaction =
         let mutable changeSpecs: ChangeSpec list = []
         let mutable changeSet: ChangeSet voption = ValueNone
         let mutable after: EditorSelection voption = ValueNone
@@ -236,14 +235,14 @@ module Transaction =
                 if not (List.isEmpty changeSpecs) then
                     raise (ArgumentException "A transaction with a change set takes no other change.")
 
-                if ChangeSet.length set <> doc.Length then
+                if ChangeSet.length set <> length then
                     raise (
                         ArgumentException (
                             String.Concat (
                                 "A change set for a document of length ",
                                 string (ChangeSet.length set),
                                 " was given for one of length ",
-                                string doc.Length,
+                                string length,
                                 "."
                             )
                         )
@@ -252,9 +251,9 @@ module Transaction =
                 set
             | ValueNone ->
                 if List.isEmpty changeSpecs then
-                    ChangeSet.empty doc.Length
+                    ChangeSet.empty length
                 else
-                    ChangeSet.ofSpecs doc changeSpecs
+                    make changeSpecs
 
         {
             Seq = 0L
@@ -266,8 +265,12 @@ module Transaction =
                 if ChangeSet.isEmpty changes then
                     ValueNone
                 else
-                    ValueSome selection
+                    selection
             Effects = effects.ToArray ()
             Annotations = annotations.ToArray ()
             ScrollIntoView = scroll
         }
+
+    /// The transaction `specs` describe for `doc` and the selection of its source.
+    let internal build (doc: Text) (selection: EditorSelection) (specs: TxSpec list) : Transaction =
+        buildWith doc.Length (ChangeSet.ofSpecs doc) (ValueSome selection) specs

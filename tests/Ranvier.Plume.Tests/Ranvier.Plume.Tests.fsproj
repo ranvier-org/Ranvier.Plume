@@ -14,6 +14,8 @@
         <Compile Include="ChangeSetTests.fs" />
         <Compile Include="SelectionTests.fs" />
         <Compile Include="StateTests.fs" />
+        <Compile Include="HistoryTests.fs" />
+        <Compile Include="EditorTests.fs" />
         <Compile Include="Main.fs" />
     </ItemGroup>
 

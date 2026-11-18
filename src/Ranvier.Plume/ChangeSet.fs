@@ -257,7 +257,7 @@ module internal Sections =
 
     /// Adds to `builder` the sections of `a` moved over `b`: both apply to one document, and the result applies to
     /// the document `b` produces. Where both insert at one position, `a`'s text comes first when `before` is set.
-    let map (texts: bool) (before: bool) (a: Iter) (b: Iter) (builder: Builder) =
+    let map (texts: bool) (removals: bool) (before: bool) (a: Iter) (b: Iter) (builder: Builder) =
         // The section of `a` whose inserted text is already in the result.
         let mutable insertedAt = -1
         let mutable running = true
@@ -310,7 +310,7 @@ module internal Sections =
                     if b.Ins = -1 then
                         let piece = min left b.Len
 
-                        if texts then
+                        if removals then
                             let at = a.Off + a.Len - left
                             removed <- Text.append removed (Text.slice at (at + piece) a.Removed)
 
@@ -432,7 +432,7 @@ module ChangeDesc =
     /// <c>other</c> produces. Where both insert at one position, <c>desc</c> comes first when <c>before</c> is true.
     let map (before: bool) (other: ChangeDesc) (desc: ChangeDesc) : ChangeDesc =
         let builder = Sections.Builder false
-        Sections.map false before (Sections.iter desc.Sections null null) (Sections.iter other.Sections null null) builder
+        Sections.map false false before (Sections.iter desc.Sections null null) (Sections.iter other.Sections null null) builder
         { Sections = builder.Sections }
 
     /// Where <c>position</c> lies after the change. A position inside a replaced range maps to the range's start
@@ -506,12 +506,7 @@ module ChangeSet =
     /// True when the change replaces no range.
     let isEmpty (changes: ChangeSet) : bool = Sections.isEmpty changes.Sections
 
-    /// The change <c>specs</c> make to <c>doc</c>. Specs address <c>doc</c> and may come in any order; specs at one
-    /// position apply in list order.
-    /// <exception cref="T:System.ArgumentException">A spec lies outside <c>doc</c>, ends before it starts, or overlaps
-    /// another.</exception>
-    let ofSpecs (doc: Text) (specs: ChangeSpec list) : ChangeSet =
-        let total = doc.Length
+    let private ofSpecsCore (total: int) (removed: int -> int -> Text) (specs: ChangeSpec list) : ChangeSet =
         let builder = Sections.Builder true
         let mutable position = 0
 
@@ -538,11 +533,22 @@ module ChangeSet =
                 builder.Add (spec.From - position, -1, false)
                 builder.Add (spec.To - spec.From, spec.Insert.Length, false)
                 builder.AddInsert spec.Insert
-                builder.AddRemoved (Text.slice spec.From spec.To doc)
+                builder.AddRemoved (removed spec.From spec.To)
                 position <- spec.To
 
         builder.Add (total - position, -1, false)
         builder.ToSet ()
+
+    /// The change <c>specs</c> make to <c>doc</c>. Specs address <c>doc</c> and may come in any order; specs at one
+    /// position apply in list order.
+    /// <exception cref="T:System.ArgumentException">A spec lies outside <c>doc</c>, ends before it starts, or overlaps
+    /// another.</exception>
+    let ofSpecs (doc: Text) (specs: ChangeSpec list) : ChangeSet =
+        ofSpecsCore doc.Length (fun from to' -> Text.slice from to' doc) specs
+
+    /// `ofSpecs` for a document of which only the length is known. The result needs `stamp`.
+    let internal ofSpecsUnstamped (length: int) (specs: ChangeSpec list) : ChangeSet =
+        ofSpecsCore length (fun _ _ -> Text.empty) specs
 
     /// <c>doc</c> with the change applied.
     /// <exception cref="T:System.ArgumentException"><c>doc</c> has another length than the change applies to.</exception>
@@ -594,8 +600,32 @@ module ChangeSet =
     /// <c>other</c> produces. Where both insert at one position, <c>changes</c> comes first when <c>before</c> is true.
     let map (before: bool) (other: ChangeDesc) (changes: ChangeSet) : ChangeSet =
         let builder = Sections.Builder true
-        Sections.map true before (Sections.iter changes.Sections changes.Inserted changes.Removed) (Sections.iter other.Sections null null) builder
+        Sections.map true true before (Sections.iter changes.Sections changes.Inserted changes.Removed) (Sections.iter other.Sections null null) builder
         builder.ToSet ()
+
+    /// `map` for a change set whose removed text is not known. The result needs `stamp`.
+    let internal mapUnstamped (before: bool) (other: ChangeDesc) (changes: ChangeSet) : ChangeSet =
+        let builder = Sections.Builder true
+        Sections.map true false before (Sections.iter changes.Sections changes.Inserted changes.Removed) (Sections.iter other.Sections null null) builder
+        builder.ToSet ()
+
+    /// `changes` with the text each range removes from `doc`, the document it applies to.
+    let internal stamp (doc: Text) (changes: ChangeSet) : ChangeSet =
+        let sections = changes.Sections
+        let removed = Array.zeroCreate<Text> changes.Inserted.Length
+        let mutable position = 0
+        let mutable change = 0
+        let mutable i = 0
+
+        while i < sections.Length do
+            if sections[i + 1] >= 0 then
+                removed[change] <- Text.slice position (position + sections[i]) doc
+                change <- change + 1
+
+            position <- position + sections[i]
+            i <- i + 2
+
+        ChangeSet (sections, changes.Inserted, removed)
 
     /// Where <c>position</c> lies after the change.
     let mapPos (assoc: Assoc) (position: int) (changes: ChangeSet) : int =
