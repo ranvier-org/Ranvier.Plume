@@ -1,6 +1,9 @@
 /// A hidden window with one editor view mounted in it.
 module Ranvier.Plume.View.Tests.Host
 
+// SDL's events are native structures, pushed by address.
+#nowarn "9" "51"
+
 open System
 open System.Text
 open Ranvier
@@ -42,6 +45,62 @@ module private NativeThread =
 
         if not (isNull failure.Value) then
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure.Value).Throw ()
+
+/// The desktop's mouse as SDL reports it: events put on SDL's queue for the test's window. The window's own loop
+/// reads them on its next turn and sends them on to the engine, as it does with the events of a shown window.
+/// A point is in pixels of the window.
+module Desktop =
+    open SDL
+    open Microsoft.FSharp.NativeInterop
+
+    /// The SDL id of the one window the process has open.
+    let private windowId () : SDL_WindowID =
+        let mutable count = 0
+        let windows = SDL3.SDL_GetWindows &&count
+
+        try
+            if count <> 1 then
+                failwithf "%d SDL windows are open; a view test has one" count
+
+            SDL3.SDL_GetWindowID (NativePtr.read windows)
+        finally
+            SDL3.SDL_free (NativePtr.toNativeInt windows)
+
+    let private push (event: SDL_Event) =
+        let mutable pushed = event
+        SDL3.SDL_PushEvent &&pushed |> ignore
+
+    /// The pointer at a point, with the left button held or not.
+    let move (x: float32) (y: float32) (held: bool) =
+        let mutable event = SDL_Event ()
+        event.motion.``type`` <- SDL_EventType.SDL_EVENT_MOUSE_MOTION
+        event.motion.windowID <- windowId ()
+        event.motion.state <- (if held then SDL_MouseButtonFlags.SDL_BUTTON_LMASK else Unchecked.defaultof<SDL_MouseButtonFlags>)
+        event.motion.x <- x
+        event.motion.y <- y
+        push event
+
+    /// The left button pressed or released at a point.
+    let button (x: float32) (y: float32) (down: bool) =
+        let mutable event = SDL_Event ()
+        event.button.``type`` <- (if down then SDL_EventType.SDL_EVENT_MOUSE_BUTTON_DOWN else SDL_EventType.SDL_EVENT_MOUSE_BUTTON_UP)
+        event.button.windowID <- windowId ()
+        event.button.button <- 1uy
+        event.button.down <- SDLBool.op_Implicit down
+        event.button.clicks <- 1uy
+        event.button.x <- x
+        event.button.y <- y
+        push event
+
+    /// The wheel turned `notches` towards the user with the pointer at a point. SDL counts a turn away as positive.
+    let wheel (x: float32) (y: float32) (notches: float32) =
+        let mutable event = SDL_Event ()
+        event.wheel.``type`` <- SDL_EventType.SDL_EVENT_MOUSE_WHEEL
+        event.wheel.windowID <- windowId ()
+        event.wheel.y <- -notches
+        event.wheel.mouse_x <- x
+        event.wheel.mouse_y <- y
+        push event
 
 /// A frame scheduler whose frames run when a test asks. Its timers never fire.
 [<Sealed>]

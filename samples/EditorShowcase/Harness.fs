@@ -2,6 +2,9 @@
 /// history memory, loading and change application. A scripted mode creates its window hidden and never shows it.
 module EditorShowcase.Harness
 
+// The display's mode is read through a native pointer.
+#nowarn "9"
+
 open System
 open System.Collections.Generic
 open System.Diagnostics
@@ -463,6 +466,15 @@ let private writes (options: Options) =
         report "typing" 20 (fun () -> graph.Run(fun () -> Commands.insertText "x" editor |> ignore))
         report $"lines x{options.Lines}" 20 (fun () -> graph.Run(fun () -> view.ScrollBy(float options.Lines * lineHeight))))
 
+/// The refresh rate SDL reports for the primary display, in hertz; 0 when it reports none.
+let private displayHertz () : float =
+    let mode = SDL.SDL3.SDL_GetCurrentDisplayMode(SDL.SDL3.SDL_GetPrimaryDisplay())
+
+    if Microsoft.FSharp.NativeInterop.NativePtr.isNullPtr mode then
+        0.0
+    else
+        float (Microsoft.FSharp.NativeInterop.NativePtr.read mode).refresh_rate
+
 /// The app as its window runs it, tour on, with no window shown. The page is given a frame whenever it asks for
 /// one, as a shown window gives one at each refresh of its display, and the mouse, the wheel and the keys go in
 /// through the host as a window sends them. Each line printed is something that held; the first that does not
@@ -558,6 +570,24 @@ let private tour (options: Options) =
             holds $"and the text moved down, by {fixed3 (top () - start)} CSS px" (top () > start)
             holds $"rows were computed for the lines that came into view ({(view ()).RowsWritten() - rows})" ((view ()).RowsWritten() > rows)
             holds $"the statistics panel published: {state.Stats.Peek[0]} lines in the file" (state.Stats.Peek[0] <> "")
+
+            // The window's own loop, as `dotnet run` runs it: `Window.Step()` alone decides when a frame runs.
+            let own = top ()
+            let clock = Stopwatch.StartNew()
+            let mutable turns = 0
+
+            while clock.ElapsedMilliseconds < 2000L do
+                if not (window.Step()) then
+                    raise (RunFailed "the window closed during the run")
+
+                turns <- turns + 1
+
+            // The window paces frames by the refresh rate of the display. With nothing presented on a screen it runs
+            // a frame one and a half refresh intervals after the last.
+            let rate = Double.Parse(state.Stats.Peek[7], CultureInfo.InvariantCulture)
+            let hertz = displayHertz ()
+            holds $"left to the window's own loop for 2 s ({turns} turns), the tour moved the text {fixed3 (top () - own)} CSS px" (top () > own)
+            holds $"at {fixed3 rate} frames a second by the app's count; the display reports {fixed3 hertz} Hz, and a frame every one and a half refreshes is {fixed3 (hertz / 1.5)} a second" (hertz <= 0.0 || (rate >= hertz / 3.0 && rate <= hertz * 1.1))
 
             // A click on the tour's button stops it, and the app comes to rest.
             click (button "Scroll tour")

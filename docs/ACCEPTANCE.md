@@ -257,9 +257,9 @@ facet's default.
   ambient graph: "No ambient graph on this thread" (Ranvier.View.Dom 0.1.50 with Ranvier.View.WebCore 0.1.2). The
   view wraps the scheduler it is given so each callback enters the view's graph (`Component.fs`, `onGraph`, marked
   `//FOR-REVIEW`). A fix in Ranvier.View would remove the wrapper.
-- **A hidden window's own loop delivers no animation frames.** The tests and `--tour` give the host a frame
-  whenever the page asks for one, as a shown window does at a refresh. A manual scheduler is used as well, where
-  a test counts frame callbacks.
+- **A hidden window's loop runs animation frames.** An early note of mine said it did not, and the first
+  frame-pacing test used a manual scheduler for that reason. A test now asks for a scroll and only turns the
+  window's loop, and the frame runs. The manual scheduler stays where a test counts frame callbacks.
 - **A `Ranvier.Css` reader value is lowered again on every render of its element's instance** (7.1, point 3;
   Ranvier.Css 0.1.1). `CssView.partsWithInline` (`Ranvier.Css/src/Ranvier.Css.View/Bindings.fs`) calls
   `Style.variableDeclarations` on each read of the style attribute, and that function
@@ -295,23 +295,30 @@ smoke windows are created hidden"; task 8 names a hidden window for its spike an
 `--shot` and has `--bench`, `--memory` and `--load` "run to completion hidden". No step of the plan shows a
 window, and none was shown.
 
-**From the host inward, the paths a shown window uses ran too**, hidden:
+**From the desktop's events inward, the paths a shown window uses ran too**, in windows created hidden:
 
-- **Input.** The view tests send the mouse, the wheel and keys through `WebCoreHost.Mouse`, `Wheel`, `Click` and
-  `Type`, which are what a window calls. A press, a drag that leaves the viewport, a release and a press with
-  Shift select through the pointer listeners; a press on the text gives the view the keyboard once the page has
-  its window's focus (`SetFocused`); the wheel scrolls; a press and a drag on the scrollbar's track move the
-  document and the thumb; a key typed after a click inserts at the click. With the three listeners removed, the
-  four input tests fail.
-- **Frames.** A test gives the host a frame whenever the page asks for one (`WebCoreHost.FrameRequested`, then
-  `Frame`), which is what a shown window does at each refresh of its display. A scroll request is laid out by
-  that frame, two wheel events before one frame lay the rows out once, and the view at rest asks for no frame.
+- **Desktop events.** A view test puts mouse moves, button presses and wheel turns on SDL's event queue for its
+  window, as the desktop's mouse does. The window's own loop reads them and sends them on to the engine: a press,
+  a drag and a release select; three notches of the wheel scroll 120 CSS px; a press and a drag on the
+  scrollbar's track move the document.
+- **Host input.** Further tests send the mouse, the wheel and keys through `WebCoreHost.Mouse`, `Wheel`, `Click`
+  and `Type`, which the window calls for those events: a drag that leaves the viewport still selects, and one
+  that leaves the scrollbar's track still drags; a press with Shift extends; a press on the text gives the view
+  the keyboard once the page has its window's focus (`SetFocused`); a key typed after a click inserts at the
+  click. With the three listeners removed, these four tests fail.
+- **Frames.** A test asks for a scroll and then only turns the window's loop: the loop runs the animation frame
+  and the rows are laid out. Another gives the host a frame whenever the page asks for one
+  (`WebCoreHost.FrameRequested`, then `Frame`): two wheel events before one frame lay the rows out once, and the
+  view at rest asks for no frame.
 - **Timers.** The cursor blinks on the host's timers, and a move of the cursor lights it at once.
-- **The app.** `samples/EditorShowcase --tour` runs the app as its window runs it, tour on, on the same frames
-  and input: each of 120 refreshes ran a frame the app asked for and the text moved 152 CSS px; a click on the
-  tour's button stopped it, after which 1 of 60 refreshes ran a frame and the text stayed; the wheel, a click in
-  the text and a typed key did what they do; F5 started the tour again; a click on a tab opened its file
-  (**measured here**: four runs, 14 checks each, exit code 0; the figures are the first run's).
+- **The app.** `samples/EditorShowcase --tour` runs the app as its window runs it, tour on. Left to the window's
+  own loop for 2 s, the tour moved the text 6,282 CSS px at 108.0 frames a second by the app's count. The display
+  reports 164.9 Hz, and the window, with nothing presented on a screen, runs a frame one and a half refresh
+  intervals after the last (**from source**, `Ranvier.View.WebCore.Sdl/Window.fs`, `stall`): 109.9 a second.
+  Then, on frames given as the page asked for them: each of 120 refreshes ran a frame the app asked for; a click
+  on the tour's button stopped it, after which 1 of 60 refreshes ran a frame and the text stayed; the wheel, a
+  click in the text and a typed key did what they do; F5 started the tour again; a click on a tab opened its file
+  (**measured here**: seven runs, 16 checks each, exit code 0; the figures are one run's).
 - **Hot reload.** `dotnet fsi --exec build.fsx -- dev` runs the sample under the hot reload host
   (`dotnet run -- dev`) with the host's own `-hidden` option, which keeps its window off screen, on a copy of the
   sample's sources. The host's window loop ran the tour: the first step found the text at line 736. The 14 steps
@@ -324,9 +331,9 @@ window, and none was shown.
 
 **Outside the plan, and not run:**
 
-- A window on your screen. What only that gives is the timing of a real display's refresh and desktop events on
-  their way into the host, which is the window package's code and not this repository's. The workspace's rule is
-  that the app is launched when you ask for it, so this is yours to ask for.
+- A window on your screen. What only that adds is the picture itself on a display and the operating system's
+  delivery of input to SDL; everything after SDL's queue ran. The workspace's rule is that scripted runs use
+  hidden windows and that the app is launched when you ask for it.
 - A traced build (`-p:RanvierTrace=true`): the plan asks only that tracing is off by default, which it is. Three
   of the traced packages it needs are not in this machine's package cache.
 - A Fable build, packaging and CI: not in phase 1.
@@ -334,8 +341,8 @@ window, and none was shown.
 
 ## Found by running the gate repeatedly
 
-Two tests failed once each in single gate runs, and passed when run again. Both are fixed, and neither was a
-defect in what the library computes.
+Two tests failed once each in single gate runs, and passed when run again; a third, written later, failed once in
+25 runs. All are fixed, and none was a defect in what the library computes.
 
 - **The line-string test failed about once in 45 runs** (3 of 140 runs of the state tests on `net8.0`: twice on
   a string's instance, once on its time bound). It reads
@@ -348,12 +355,15 @@ defect in what the library computes.
   "while that instance is alive". It now says what holds: while the line's leaf still has the strings it decoded.
   Nothing in the view depends on the instance: rows compare markup by content (dossier, section 11).
 - **The blink test used a 40 ms blink** and asserted "lit" straight after mounting, which a busy machine can
-  miss. It uses 200 ms and waits for each state: 0 failures in 30 runs of the view tests.
+  miss. It uses 200 ms and waits for each state.
+- **The window-loop test counted turns**, and a turn of the window returns at once while the window has work: 50
+  turns could pass before the frame ran (1 failure in 25 runs). It is bounded by time: 0 failures in 50 runs of
+  the view tests.
 
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 112 tests, run on `net10.0` and on `net8.0`, and the view has 30.
+The state package has 112 tests, run on `net10.0` and on `net8.0`, and the view has 32.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also

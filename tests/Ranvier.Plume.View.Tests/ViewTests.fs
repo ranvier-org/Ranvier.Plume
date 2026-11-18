@@ -393,6 +393,84 @@ let tests =
                     Expect.equal (Text.toString mounted.Editor.Text.Value) "heallo" "a key typed after the click inserts there"
                     Expect.equal (textOf mounted.Rows[0]) "heallo" "and the row shows it")
 
+            testCase "mouse and wheel events on SDL's queue reach the listeners through the window's own loop"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let view = mounted.View
+                    let editor = mounted.Editor
+                    // SDL reports the mouse in pixels of the window; the view starts at the window's corner.
+                    let struct (pixels, _) = mounted.Window.PixelSize
+                    let scale = float32 pixels / 1280.0f
+                    let x (column: int) = float32 (Math.Round (view.GutterWidth.Value + float column * view.CharWidth.Value)) * scale
+                    let y (line: int) = float32 (line * 20 + 10) * scale
+                    let at (line: int) (column: int) = (Text.line line editor.Text.Value).From + column
+                    let ends () = let main = editor.Selection.Value.Main in main.Anchor, main.Head
+
+                    /// Two turns of the window's loop more than a display's refresh apart: the window holds a move and
+                    /// a turn of the wheel until a refresh has passed since the one before.
+                    let turns () =
+                        mounted.Step ()
+                        Threading.Thread.Sleep 40
+                        mounted.Step ()
+
+                    Desktop.move (x 2) (y 3) false
+                    turns ()
+                    Expect.equal (ends ()) (0, 0) "a move without a button selects nothing"
+                    Desktop.button (x 2) (y 3) true
+                    turns ()
+                    Expect.equal (ends ()) (at 3 2, at 3 2) "a press puts the cursor under the pointer"
+                    Desktop.move (x 4) (y 5) true
+                    turns ()
+                    Expect.equal (ends ()) (at 3 2, at 5 4) "a move with the button down takes the head with it"
+                    Desktop.button (x 4) (y 5) false
+                    turns ()
+                    Desktop.move (x 0) (y 0) false
+                    turns ()
+                    Expect.equal (ends ()) (at 3 2, at 5 4) "a move after the release selects nothing"
+
+                    Desktop.wheel (x 10) (y 10) 3.0f
+                    turns ()
+                    Expect.equal view.ScrollTop.Value 120.0 "three notches of the wheel scroll 120 CSS px"
+                    Desktop.wheel (x 10) (y 10) -3.0f
+                    turns ()
+                    Expect.equal view.ScrollTop.Value 0.0 "and three back return"
+
+                    let range = 1000.0 * 20.0 - 800.0 + 40.0
+                    let thumb = 800.0 * 800.0 / (range + 800.0)
+                    let place (py: float) = Math.Round (range * Math.Clamp ((py - thumb / 2.0) / (800.0 - thumb), 0.0, 1.0))
+                    Desktop.move (1273.0f * scale) (200.0f * scale) false
+                    turns ()
+                    Desktop.button (1273.0f * scale) (200.0f * scale) true
+                    turns ()
+                    Expect.equal view.ScrollTop.Value (place 200.0) "a press on the scrollbar's track centres the thumb there"
+                    Desktop.move (1273.0f * scale) (600.0f * scale) true
+                    turns ()
+                    Expect.equal view.ScrollTop.Value (place 600.0) "a move with the button down drags it"
+                    Desktop.button (1273.0f * scale) (600.0f * scale) false
+                    turns ()
+                    Desktop.move (1273.0f * scale) (100.0f * scale) false
+                    turns ()
+                    Expect.equal view.ScrollTop.Value (place 600.0) "a move after the release drags nothing"
+                    Expect.equal (ends ()) (at 3 2, at 5 4) "and the selection is as the pointer left it")
+
+            testCase "a turn of the window's own loop runs the frame a scroll request asked for"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let view = mounted.View
+                    mounted.Step ()
+                    mounted.Run (fun () -> view.ScrollTo (300.0 * 20.0))
+                    Expect.equal view.ScrollTop.Value 0.0 "a request alone moves nothing"
+
+                    // Turns of the window alone, for at most five seconds: no frame is run by the test. A turn returns
+                    // at once while the window has work, so the turns are bounded by time and not by their number.
+                    let clock = Diagnostics.Stopwatch.StartNew ()
+
+                    while view.ScrollTop.Value = 0.0 && clock.ElapsedMilliseconds < 5000L do
+                        mounted.Window.Step (timeout = 5) |> ignore
+
+                    Expect.equal view.ScrollTop.Value (300.0 * 20.0) "the window's loop ran the frame"
+                    Expect.equal (textOf mounted.Rows[300 % mounted.Rows.Length]) "line 300" "and the rows show the new place")
+
             testCase "the host's animation frame lays out what was asked for, and the view at rest asks for none"
             <| fun () ->
                 withView (manyLines 1000) standard 800 (fun mounted ->
