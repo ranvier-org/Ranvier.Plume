@@ -393,6 +393,56 @@ let tests =
                     Expect.equal (Text.toString mounted.Editor.Text.Value) "heallo" "a key typed after the click inserts there"
                     Expect.equal (textOf mounted.Rows[0]) "heallo" "and the row shows it")
 
+            testCase "the host's animation frame lays out what was asked for, and the view at rest asks for none"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    let view = mounted.View
+                    let viewport = viewportOf mounted
+
+                    // What a shown window does at each refresh of its display: a frame, when the page asked for one.
+                    let refresh () : bool =
+                        let asked = host.FrameRequested
+
+                        if asked then
+                            host.Frame ()
+
+                        asked
+
+                    /// Refreshes until the page asks for no frame; the number that ran one, 10 at most.
+                    let settle () : int =
+                        let mutable ran = 0
+
+                        while ran < 10 && refresh () do
+                            ran <- ran + 1
+
+                        ran
+
+                    Expect.isLessThan (settle ()) 10 "the mounted view comes to rest"
+                    Expect.isFalse host.FrameRequested "and at rest asks for no frame"
+
+                    mounted.Run (fun () -> view.ScrollTo (500.0 * 20.0))
+                    Expect.equal view.ScrollTop.Value 0.0 "a request alone moves nothing"
+                    Expect.isTrue host.FrameRequested "the view asked the host for a frame"
+                    host.Frame ()
+                    Expect.equal view.ScrollTop.Value (500.0 * 20.0) "the host's frame lays the rows out"
+                    Expect.equal (textOf mounted.Rows[500 % mounted.Rows.Length]) "line 500" "with the lines of the new place"
+                    Expect.isLessThan (settle ()) 10 "the view comes to rest again"
+
+                    // The wheel and the frame both come from the host, as a shown window sends them.
+                    let rows = view.RowsWritten ()
+                    let offset = viewport.scrollTop
+                    host.Wheel (400, 300, 0.0f, 20.0f, 0) |> ignore
+                    host.Wheel (400, 300, 0.0f, 40.0f, 0) |> ignore
+                    Expect.equal (view.RowsWritten ()) rows "wheel events alone compute no row"
+                    Expect.isTrue host.FrameRequested "they ask for a frame"
+                    host.Frame ()
+                    Expect.equal view.ScrollTop.Value (500.0 * 20.0 + 60.0) "one frame takes both deltas"
+                    Expect.equal (view.RowsWritten () - rows) 3L "and lays out the three lines once"
+                    Expect.equal (viewport.scrollTop - offset) 60 "the viewport moved over the sheet by as much"
+                    Expect.isLessThan (settle ()) 10 "and the view comes to rest"
+                    Expect.equal view.ScrollTop.Value (500.0 * 20.0 + 60.0) "where the wheel left it")
+
             testCase "the cursor blinks on the host's timers and a move of the cursor lights it"
             <| fun () ->
                 let blinking =

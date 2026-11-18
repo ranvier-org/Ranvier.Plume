@@ -29,6 +29,7 @@ type Mode =
     | Apply
     | Profile
     | Writes
+    | Tour
 
 type Options =
     { Mode: Mode
@@ -55,6 +56,7 @@ let usage =
   dotnet run -c Release -- --apply      time one change set of 10,000 ranges against 10,000 single replacements
   dotnet run -c Release -- --profile    time typing and scrolling with each feature of the text view switched off
   dotnet run -c Release -- --writes     list the writes a keystroke and a scroll make to the page
+  dotnet run -c Release -- --tour       run the app as its window runs it, tour on, with no window shown
 
 Options
   --size <w>x<h>   window size in CSS pixels (default 1280x800)
@@ -74,6 +76,7 @@ let parse (argv: string[]) : Result<Options, string> =
         | "--apply" :: tail -> go { options with Mode = Apply } tail
         | "--profile" :: tail -> go { options with Mode = Profile } tail
         | "--writes" :: tail -> go { options with Mode = Writes } tail
+        | "--tour" :: tail -> go { options with Mode = Tour } tail
         | "--size" :: size :: tail ->
             match size.Split 'x' with
             | [| w; h |] ->
@@ -458,6 +461,150 @@ let private writes (options: Options) =
         report "typing" 20 (fun () -> graph.Run(fun () -> Commands.insertText "x" editor |> ignore))
         report $"lines x{options.Lines}" 20 (fun () -> graph.Run(fun () -> view.ScrollBy(float options.Lines * lineHeight))))
 
+/// The app as its window runs it, tour on, with no window shown. The page is given a frame whenever it asks for
+/// one, as a shown window gives one at each refresh of its display, and the mouse, the wheel and the keys go in
+/// through the host as a window sends them. Each line printed is something that held; the first that does not
+/// ends the run.
+let private tour (options: Options) =
+    say "Editor showcase on Ranvier.Plume --tour"
+
+    try
+        use window = Window.Create(Title, options.Width, options.Height, hidden = true)
+        // A session as `dotnet run` starts it: the app drives its own frames, and the tour is on.
+        let session = Session()
+        session.Active <- options.File
+        let props = { Window = window; Session = session }
+        let graph = window.Graph
+        let host = window.Host
+        let doc = host.Document
+        let container = doc.createElement "div"
+        doc.body.appendChild container |> ignore
+
+        let mounted =
+            Mounting.mount graph None (fun errs -> raise (AggregateException errs)) container None (fun ctx ->
+                Program.run (Component.render app props) ctx.Backend)
+
+        try
+            let state = session.State :?> State
+
+            /// One refresh of a display: a frame when the page asked for one, then a turn of the window's loop.
+            let refresh () : bool =
+                let asked = host.FrameRequested
+
+                if asked then
+                    host.Frame()
+
+                if not (window.Step(timeout = 0)) then
+                    raise (Failed "the window closed during the run")
+
+                asked
+
+            /// `count` refreshes four milliseconds apart; the number that ran a frame.
+            let refreshes (count: int) : int =
+                let mutable ran = 0
+
+                for _ in 1..count do
+                    Threading.Thread.Sleep 4
+
+                    if refresh () then
+                        ran <- ran + 1
+
+                ran
+
+            let holds (what: string) (condition: bool) =
+                if not condition then
+                    raise (Failed $"did not hold: {what}")
+
+                say $"  held     {what}"
+
+            let button (label: string) : Element =
+                let nodes = doc.querySelectorAll "button"
+
+                let found =
+                    seq {
+                        for i in 0u .. nodes.length - 1u do
+                            match nodes.item i with
+                            | :? Element as element when element.textContent.StartsWith label -> yield element
+                            | _ -> ()
+                    }
+                    |> Seq.tryHead
+
+                match found with
+                | Some element -> element
+                | None -> raise (Failed $"no button reads '{label}'")
+
+            let click (element: Element) =
+                let rect = element.getBoundingClientRect ()
+                host.Click(int (rect.left + rect.width / 2.0), int (rect.top + rect.height / 2.0)) |> ignore
+
+            // The first refreshes mount the text view and size its rows.
+            refreshes 12 |> ignore
+
+            let view () =
+                match currentView state with
+                | ValueSome view -> view
+                | ValueNone -> raise (Failed "the text view did not mount")
+
+            let top () = graph.Run(fun () -> (view ()).ScrollTop.Value)
+            let text = (doc.querySelector "[data-plume]").getBoundingClientRect ()
+
+            // The tour, on the frames the app asks for.
+            let start = top ()
+            let rows = (view ()).RowsWritten()
+            let ran = refreshes 120
+            holds $"with the tour on, each of 120 refreshes ran a frame the app asked for ({ran} did)" (ran = 120)
+            holds $"and the text moved down, by {fixed3 (top () - start)} CSS px" (top () > start)
+            holds $"rows were computed for the lines that came into view ({(view ()).RowsWritten() - rows})" ((view ()).RowsWritten() > rows)
+            holds $"the statistics panel published: {state.Stats.Peek[0]} lines in the file" (state.Stats.Peek[0] <> "")
+
+            // A click on the tour's button stops it, and the app comes to rest.
+            click (button "Scroll tour")
+            refreshes 3 |> ignore
+            holds "a click on the tour's button stops the tour" (not state.Tour.Peek && (button "Scroll tour").textContent = "Scroll tour: stopped")
+            let rest = top ()
+            let idle = refreshes 60
+            holds "stopped, the text stays where it is" (top () = rest)
+            holds $"and the app asks for few frames: {idle} of 60 refreshes ran one, for the cursor's blink and the statistics" (idle < 20)
+
+            // The wheel, a click in the text and a key, as the window sends them.
+            host.Wheel(int (text.left + text.width / 2.0), int (text.top + text.height / 2.0), 0.0f, 120.0f, 0) |> ignore
+            refreshes 3 |> ignore
+            holds "the wheel over the text scrolls it by the wheel's delta on the next frame" (top () = rest + 120.0)
+            let editor = state.Files[state.Active.Peek].Editor
+            let status () = (doc.querySelectorAll "span" |> fun nodes -> seq { for i in 0u .. nodes.length - 1u -> (nodes.item i).textContent }) |> Seq.find (fun label -> label.StartsWith "Ln ")
+            let before = status ()
+            host.Click(int text.left + 300, int text.top + 110) |> ignore
+            refreshes 2 |> ignore
+            holds $"a click in the text moves the cursor: the status line went from '{before}' to '{status ()}'" (status () <> before)
+            let length = graph.Run(fun () -> editor.Text.Value.Length)
+            host.Type("x", "KeyX", "x")
+            refreshes 2 |> ignore
+            holds "a key typed after the click inserts one character" (graph.Run(fun () -> editor.Text.Value.Length) = length + 1)
+
+            // F5 in the text starts the tour again.
+            host.Key(0, "F5", "F5", null, 0, false) |> ignore
+            host.Key(1, "F5", "F5", null, 0, false) |> ignore
+            refreshes 3 |> ignore
+            holds "F5 in the text starts the tour again" state.Tour.Peek
+            let again = top ()
+            let resumed = refreshes 60
+            holds $"and the tour moves the text on its own frames again ({resumed} of 60 refreshes ran one)" (resumed = 60 && top () <> again)
+
+            // A tab opens its file in a view of its own.
+            click (button "Integrators.fs")
+            refreshes 6 |> ignore
+            holds "a click on a file opens it" (state.Active.Peek = 1)
+            holds $"and its view is mounted with its text: {grouped (graph.Run(fun () -> (view ()).Editor.Text.Value.Lines))} lines" (graph.Run(fun () -> (view ()).Editor.Text.Value.Lines) = session.Files[1].Count)
+            say "  The window was created hidden and never shown."
+            0
+        finally
+            graph.Run(fun () -> mounted.Dispose())
+            container.remove ()
+    with
+    | Failed reason ->
+        Console.Error.WriteLine $"FAIL {reason}"
+        1
+
 /// The lines of the 1,000,000-line file.
 let private largeFile () : ResizeArray<string> = (Session()).Files[0].Lines
 
@@ -599,6 +746,7 @@ let run (options: Options) : int =
         | Apply -> apply ()
         | Profile -> profile options
         | Writes -> writes options
+        | Tour -> tour options
         | Interactive -> invalidOp "the window is opened by Program"
     with
     | Failed reason ->

@@ -20,7 +20,8 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 `EditorShowcase --bench` (the baseline, with the Dispatch stopwatch added) and
 `Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code of
 commit `7b2e860`. The commits after it change the pointer-down handler, tests, the sample's `--profile` mode,
-where the sample's restore is written, the build script and comments, none of which `--bench` runs. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
+where the sample's restore is written, the sample's `--tour` mode, the build script and comments, none of which
+`--bench` runs. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
 file. Values are means of a
 run in milliseconds; a cell gives the lowest and highest of the five runs. The last column compares the means of
 the five runs, and counts the pairs in which Plume's run was below the baseline's run made just before it. The
@@ -256,8 +257,9 @@ facet's default.
   ambient graph: "No ambient graph on this thread" (Ranvier.View.Dom 0.1.50 with Ranvier.View.WebCore 0.1.2). The
   view wraps the scheduler it is given so each callback enters the view's graph (`Component.fs`, `onGraph`, marked
   `//FOR-REVIEW`). A fix in Ranvier.View would remove the wrapper.
-- **A hidden window delivers no animation frames.** The frame-pacing path is therefore tested with a manual
-  scheduler, and has not run under a display.
+- **A hidden window's own loop delivers no animation frames.** The tests and `--tour` give the host a frame
+  whenever the page asks for one, as a shown window does at a refresh. A manual scheduler is used as well, where
+  a test counts frame callbacks.
 - **A `Ranvier.Css` reader value is lowered again on every render of its element's instance** (7.1, point 3;
   Ranvier.Css 0.1.1). `CssView.partsWithInline` (`Ranvier.Css/src/Ranvier.Css.View/Bindings.fs`) calls
   `Style.variableDeclarations` on each read of the style attribute, and that function
@@ -281,25 +283,47 @@ facet's default.
 - **Rows whose line is text alone cost the engine more to scroll** (7.1, point 5). The view ends such markup
   with an empty comment. The cause is not established.
 
-## Not verified
+## What the plan's checks ran in, and what is outside them
 
-- **No window was shown.** What a shown window alone gives was not run: frames delivered by a display, the
-  interactive sample and its scroll tour, and input as the desktop delivers it to SDL. Everything from the host's
-  input calls inward ran in hidden windows: a press, a drag that leaves the viewport, a release and a press with
+**Every check of the plan ran, in the windows the plan names.** Its global constraints say "Bench, capture and
+smoke windows are created hidden"; task 8 names a hidden window for its spike and its smoke test, and task 9 has
+`--shot` and has `--bench`, `--memory` and `--load` "run to completion hidden". No step of the plan shows a
+window, and none was shown.
+
+**From the host inward, the paths a shown window uses ran too**, hidden:
+
+- **Input.** The view tests send the mouse, the wheel and keys through `WebCoreHost.Mouse`, `Wheel`, `Click` and
+  `Type`, which are what a window calls. A press, a drag that leaves the viewport, a release and a press with
   Shift select through the pointer listeners; a press on the text gives the view the keyboard once the page has
-  its window's focus; the wheel scrolls, and two wheel events in a frame lay the rows out once; a press and a
-  drag on the scrollbar's track move the document and the thumb; a key typed after a click inserts at the click;
-  and the cursor blinks on the host's timers. With the three listeners removed, the four input tests fail.
-- The hot reload path of the sample (`dotnet run -- dev`) is carried over from the baseline and was not run.
-- Both libraries build for `net10.0` and `net8.0`. The tests ran on `net10.0` only.
-- The traced build (`-p:RanvierTrace=true`) is wired and was not built.
-- No Fable build, packaging or CI: not in phase 1.
+  its window's focus (`SetFocused`); the wheel scrolls; a press and a drag on the scrollbar's track move the
+  document and the thumb; a key typed after a click inserts at the click. With the three listeners removed, the
+  four input tests fail.
+- **Frames.** A test gives the host a frame whenever the page asks for one (`WebCoreHost.FrameRequested`, then
+  `Frame`), which is what a shown window does at each refresh of its display. A scroll request is laid out by
+  that frame, two wheel events before one frame lay the rows out once, and the view at rest asks for no frame.
+- **Timers.** The cursor blinks on the host's timers, and a move of the cursor lights it at once.
+- **The app.** `samples/EditorShowcase --tour` runs the app as its window runs it, tour on, on the same frames
+  and input: each of 120 refreshes ran a frame the app asked for and the text moved 152 CSS px; a click on the
+  tour's button stopped it, after which 1 of 60 refreshes ran a frame and the text stayed; the wheel, a click in
+  the text and a typed key did what they do; F5 started the tour again; a click on a tab opened its file
+  (**measured here**: four runs, 14 checks each, exit code 0; the figures are the first run's).
+
+**Outside the plan, and not run:**
+
+- What only a display or a desktop gives: the timing of a real refresh, and desktop events on their way into the
+  host, which is the window package's code and not this repository's. Showing a window is left to you: the
+  workspace's rule is that the app is launched when you ask for it.
+- The hot reload path of the sample (`dotnet run -- dev`), which shows a window. It is carried over from the
+  baseline.
+- Tests on `net8.0`: both libraries build for `net10.0` and `net8.0`, and the test projects target `net10.0`.
+- A traced build (`-p:RanvierTrace=true`): the plan asks only that tracing is off by default, which it is.
+- A Fable build, packaging and CI: not in phase 1.
 - Atelier was not read beyond `Atelier.Text` and its tests, and was not built or run.
 
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 112 tests and the view has 29.
+The state package has 112 tests and the view has 30.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also
