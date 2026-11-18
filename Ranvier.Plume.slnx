@@ -15,8 +15,10 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Ranvier.Plume/Ranvier.Plume.fsproj" />
+    <Project Path="src/Ranvier.Plume.View/Ranvier.Plume.View.fsproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Ranvier.Plume.Tests/Ranvier.Plume.Tests.fsproj" />
+    <Project Path="tests/Ranvier.Plume.View.Tests/Ranvier.Plume.View.Tests.fsproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Tailcalls>false</Tailcalls>
+    <RootNamespace>Ranvier.Plume.View</RootNamespace>
+    <AssemblyName>Ranvier.Plume.View</AssemblyName>
+    <PackageId>Ranvier.Plume.View</PackageId>
+    <PackageId Condition="'$(RanvierTrace)' == 'true'">Ranvier.Plume.View.Traced</PackageId>
+    <Title>Ranvier.Plume.View</Title>
+    <Description>The EditorView component of Ranvier.Plume for Ranvier.View: a virtualised text view with pooled rows, gutters, layers, pointer and keyboard input, and a theme over Ranvier.Css.</Description>
+    <PackageTags>editor;text;view;ranvier;reactive;fsharp</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.0.0.0</AssemblyVersion>
+    <RanvierAotClean>true</RanvierAotClean>
+    <RanvierExactSiblingVersions>true</RanvierExactSiblingVersions>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <FablePackageType>none</FablePackageType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Styling.fs" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Rows.fs" />
+    <Compile Include="Features.fs" />
+    <Compile Include="Component.fs" />
+    <InternalsVisibleTo Include="Ranvier.Plume.View.Tests" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="licenses/Ranvier.Plume/" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <ProjectReference Include="../Ranvier.Plume/Ranvier.Plume.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" Version="5.3.0" />
+    <PackageReference Include="Ranvier.View$(RanvierPackageSuffix)" Version="$(RanvierViewVersion)" />
+    <PackageReference Include="Ranvier.View.Dom$(RanvierPackageSuffix)" Version="$(RanvierViewVersion)" />
+    <PackageReference Include="Ranvier.Css" Version="$(RanvierCssVersion)" />
+    <PackageReference Include="Ranvier.Css.View" Version="$(RanvierCssVersion)" />
+    <PackageReference Include="Ranvier.Keyboard.Dom" Version="$(RanvierKeyboardVersion)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RanvierTrace)' == 'true'">
+    <AssemblyMetadata Include="RanvierTrace" Value="true" />
+  </ItemGroup>
+</Project>

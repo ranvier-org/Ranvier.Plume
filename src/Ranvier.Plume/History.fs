@@ -311,7 +311,11 @@ module HistoryState =
     /// <c>state</c> after <c>transaction</c>.
     let apply (transaction: Transaction) (state: HistoryState) : HistoryState =
         if not transaction.DocChanged then
-            state
+            // A selection set between two edits ends the item the first belongs to.
+            if transaction.Selection.IsSome && state.PrevTime <> noTime then
+                { state with PrevTime = noTime }
+            else
+                state
         else
             match Transaction.annotation History.undoOp transaction with
             | ValueSome true ->
