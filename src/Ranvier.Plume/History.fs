@@ -19,10 +19,11 @@ type HistoryConfig =
 [<RequireQualifiedAccess>]
 module History =
 
-    /// 1,000 items, a new item after 500 ms, and edits joined when their ranges touch.
+    /// 10,000 items, a new item after 500 ms, and edits joined when their ranges touch. An item of a
+    /// single-character edit holds about 280 bytes, so a full history of them holds about 2.8 MB.
     let defaults: HistoryConfig =
         {
-            Depth = 1000
+            Depth = 10_000
             NewGroupDelay = 500L
             JoinToEvent = fun _ adjacent -> adjacent
         }

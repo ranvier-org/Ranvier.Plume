@@ -31,6 +31,8 @@ type LogReader internal (memo: Memo<struct (Transaction[] * int64)>) =
 [<Sealed>]
 type Document internal (config: DocumentConfig) =
     let graph = Graph.Current
+    // The clock alone is kept of the configuration: kept whole, it would hold the text the document started with.
+    let clock = config.Clock
     let head = Api.createSignal 0L
     let savedVersion = Api.createSignal 0
     let mutable current = config.Text
@@ -125,7 +127,7 @@ type Document internal (config: DocumentConfig) =
     member _.UndoDepth: Memo<int> = undoDepth
     /// The number of history items that can be redone.
     member _.RedoDepth: Memo<int> = redoDepth
-    member internal _.Clock = config.Clock
+    member internal _.Clock = clock
     /// The current text, read without tracking.
     member internal _.Current = current
 
@@ -164,7 +166,7 @@ type Document internal (config: DocumentConfig) =
             if (Transaction.annotation Annotations.time rebased).IsSome then
                 rebased.Annotations
             else
-                Array.append rebased.Annotations [| Annotations.time.Of (config.Clock ()) |]
+                Array.append rebased.Annotations [| Annotations.time.Of (clock ()) |]
 
         let transaction =
             { rebased with

@@ -168,6 +168,51 @@ let documentTests =
                     Expect.equal document.LogLength 1 "a disposed reader keeps nothing")
         ]
 
+/// A document over a text of its own, with an editor and an update reader, and a weak reference to that text.
+/// A method of its own, so no local of the caller keeps the text alive.
+[<System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)>]
+let private documentOverOwnText () : struct (WeakReference * Document * Editor * UpdateReader) =
+    let original = Text.ofLines (Seq.init 2000 (fun index -> "line " + string index))
+    let document = Document.create original
+    let editor = Editor.create document []
+    let updates = editor.Updates ()
+    updates.Read () |> ignore
+    struct (WeakReference original, document, editor, updates)
+
+let private collect () =
+    GC.Collect ()
+    GC.WaitForPendingFinalizers ()
+    GC.Collect ()
+
+[<Tests>]
+let retentionTests =
+    testList
+        "Retention"
+        [
+            testCase "a document holds its saved text and its current text, and no other"
+            <| fun () ->
+                withGraph (fun _ ->
+                    let struct (original, document, editor, updates) = documentOverOwnText ()
+
+                    for index in 0..40 do
+                        editor.Dispatch [ insert (index * 50) "x"; Tx.isolateHistory ]
+                        updates.Read () |> ignore
+
+                    collect ()
+                    Expect.isTrue original.IsAlive "the text at the start is the saved text"
+                    document.MarkSaved ()
+                    // Two more transactions move the readers' last values past the text at the start.
+                    editor.Dispatch [ insert 0 "y"; Tx.isolateHistory ]
+                    updates.Read () |> ignore
+                    editor.Dispatch [ insert 0 "y"; Tx.isolateHistory ]
+                    updates.Read () |> ignore
+                    collect ()
+                    Expect.isFalse original.IsAlive "once another text is saved, nothing holds the text at the start"
+                    Expect.equal document.UndoDepth.Value 43 "the history still undoes every edit"
+                    Expect.isTrue (Editor.undo editor) "undo"
+                    GC.KeepAlive updates)
+        ]
+
 let private editCount =
     StateField.define
         {

@@ -50,15 +50,19 @@ type Editor internal (document: Document, extensions: Extension list, id: int) =
     let owner = Api.getOwner ()
     let cursor = document.RegisterReader ()
 
+    // The state the fold starts from. The fold takes it once: held longer, it would keep the text the editor was
+    // created with alive.
     let initial =
-        Folded (
-            EditorState.create
-                {
-                    Doc = document.Current
-                    Selection = ValueNone
-                    Extensions = extensions
-                },
-            cursor.At
+        ref (
+            Folded (
+                EditorState.create
+                    {
+                        Doc = document.Current
+                        Selection = ValueNone
+                        Extensions = extensions
+                    },
+                cursor.At
+            )
         )
 
     /// A transaction as this editor applies it.
@@ -80,7 +84,14 @@ type Editor internal (document: Document, extensions: Extension list, id: int) =
     let fold =
         Api.createMemo (fun (previous: Folded voption) ->
             let seq = document.Head.Value
-            let before = ValueOption.defaultValue initial previous
+
+            let before =
+                match previous with
+                | ValueSome folded -> folded
+                | ValueNone ->
+                    let first = initial.Value
+                    initial.Value <- Unchecked.defaultof<Folded>
+                    first
 
             if seq = before.At then
                 before
@@ -166,7 +177,8 @@ type Editor internal (document: Document, extensions: Extension list, id: int) =
     /// document's log keeps every transaction a reader has yet to read.
     member _.Updates() : UpdateReader =
         let readerCursor = document.RegisterReader ()
-        let start = Api.untrack (fun () -> fold.Value)
+        // Where the reader starts. Its first value takes it once, so the reader holds no state but its last.
+        let start = ref (Api.untrack (fun () -> fold.Value))
 
         let memo =
             Api.createMemo (fun (previous: UpdateCell voption) ->
@@ -175,7 +187,10 @@ type Editor internal (document: Document, extensions: Extension list, id: int) =
                 let struct (startState, at) =
                     match previous with
                     | ValueSome cell -> struct (cell.Update.State, cell.At)
-                    | ValueNone -> struct (start.State, start.At)
+                    | ValueNone ->
+                        let first = start.Value
+                        start.Value <- Unchecked.defaultof<Folded>
+                        struct (first.State, first.At)
 
                 if folded.At = at then
                     match previous with
