@@ -1,7 +1,8 @@
 # Ranvier.Plume: feature and API dossier
 
 **Date:** 2026-11-18 (second version)
-**Status:** proposal, not yet approved. No code exists.
+**Status:** approved 2026-11-18. Phase 1 is built: see `ACCEPTANCE.md` for the measurements and section 11 for
+what changed while building.
 **Source of the extraction:** `C:\wk\atelier`, branch `feat/atelier-foundation`.
 **Relation to CodeMirror:** the state model takes its ideas from CodeMirror 6. This is not a port and not a
 binding.
@@ -728,10 +729,32 @@ inside the text, the cross-file undo coordinator, the journal on disk, CI and pa
 14. **Offsets are UTF-16 code units**, matching .NET strings and LSP's default.
 15. **No Lezer port.** Tokenizers in tiers; a syntax tree is a facet slot only.
 16. **Expecto for tests**, matching `Ranvier.Keyboard`. Atelier uses xUnit.
-17. **The undo depth has no default yet.** It is set from the memory measurement of section 7.2.
+17. **The undo depth default is 10,000 items**, set from the memory measurement of section 7.2: 279 bytes an item
+    for a single-character edit (`ACCEPTANCE.md`).
 
 ## 10. Left to the builder
 
 File layout inside each project; the internal structure of the log, of `RangeSet` and of the facet resolver;
 how dropped transactions are composed; the exact record fields of option types; test names; and the order of
 work inside phase 1.
+
+---
+
+## 11. As built in phase 1
+
+Where the build differs from the sections above. The measurements are in `ACCEPTANCE.md`.
+
+| Section | As built | Why |
+|---|---|---|
+| 4.2, 5.6 History | A history item holds the change set that undoes its edit (the text the edit removed), and the top item carries the changes the items below still have to be moved over. It is a fold over the log's transactions, eagerly advanced when a transaction is appended. | Positions alone would make the log keep every transaction an item refers to. |
+| 4.2 Readers | An editor and an update reader register a cursor with the log, removed when their owner is disposed. The log keeps the transactions after the lowest cursor. `Document.Reader ()` gives a host the same reader. | Rule 4 of the log needs to know what every reader has consumed. A cursor carries no notification. |
+| 4.2 Effects | A transaction's selection and effects apply in the editor that made it. A transaction from a source outside every editor (`Document.Dispatch`) delivers its effects to all editors. | Two editors on one document each have their own configuration and view. |
+| 4.5 Rows | A row is one markup slot holding the gutter markers and the line. | A separate element for the marker cost the engine about 1 ms a frame (`ACCEPTANCE.md`). |
+| 4.5 Frames | The viewport is measured when it is mounted and by a timer twice a second, not in a frame. | A layout read after a transaction's DOM writes lays the page out twice. A resize observer is the phase 2 replacement. |
+| 4.6, 5.2 | `ChangeSet.apply` replaces its ranges back to front through `Text.replace`. The single pass over touched leaves is not written. | 10,000 ranges took 71 ms either way; the pass gains only where many ranges fall in one leaf. |
+| 4.7, 5.4 | A state field's update receives the transaction only. | A transaction holds no state. A value that needs the text is a computed facet or a memo over `editor.State`. |
+| 5.4 Read-only | `Editor.Dispatch` drops a transaction that changes the document and carries a user event while `EditorState.readOnly` is true. | One place for the rule, in front of every command. |
+| 5.6 | Undo and redo are `Editor.undo`, `Editor.redo` (also `Commands.undo`, `Commands.redo`). A selection set between two edits ends the item the first belongs to. | A module cannot be continued in a later file; the second matches what a user expects of undo after moving the cursor. |
+| 5.8 Extension points | `Gutter.define` takes a `GutterSpec` (with a `Key` naming what its markers depend on beside the line), `Layer.define` a `LayerSpec`, and `ViewPlugin.define` returns a typed plugin whose value `ViewPlugin.tryGet` reads. | A lookup cell tracks nothing its function reads, so a gutter states its dependency; a layer and a plugin of one feature share state through the plugin's value. |
+| 5.8 Mounting | `EditorView.create config` gives the component, the classes it applies and its theme's rules. A mount takes `{ Editor; Scheduler }`. | The component is defined before any window exists; the frame scheduler belongs to the host of each mount. |
+| 5.8 Theme rules | Layers and gutter markers are selected by a `data-pm` attribute, tokens by class, all under an attribute of the view's own viewport. | The template is fixed; a class chosen at run time has no place in it. |

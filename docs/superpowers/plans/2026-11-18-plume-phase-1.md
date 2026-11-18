@@ -171,8 +171,8 @@ module Text =
 A leaf whose bytes are all ASCII uses its byte offsets as character offsets; any other leaf holds a character
 offset array.
 
-- [ ] **Step 1:** Scaffold the repository; `git init`; first commit of the dossier, this plan and the scaffold.
-- [ ] **Step 2:** Port `TextSnapshotTests.fs` to Expecto as `TextTests.fs` against the signatures above, and add:
+- [x] **Step 1:** Scaffold the repository; `git init`; first commit of the dossier, this plan and the scaffold.
+- [x] **Step 2:** Port `TextSnapshotTests.fs` to Expecto as `TextTests.fs` against the signatures above, and add:
   - `Text offsets over CRLF and astral lines`: `ofString "a\r\nb😀c\rd"` has `length = 9`, `lines = 3`;
     `line 1` is `{ Number = 1; From = 3; To = 7; Text = "b😀c" }`; `lineAt 8` is line 2; `positionOf 5` is `struct (1, 2)`.
   - `empty text`: `length = 0`, `lines = 1`, `lineAt 0 = { Number = 0; From = 0; To = 0; Text = "" }`.
@@ -182,10 +182,10 @@ offset array.
   - Property `replace agrees with String`: for random text and random `(from, to, insert)`,
     `toString (replace from to (ofString insert) t) = s.Remove(from, to - from).Insert(from, insert)`.
   - Property `vectorised scan equals scalar scan`: `contentEquals (ofUtf8 b) (ofUtf8Scalar b)` and equal `lines`.
-- [ ] **Step 3:** Run `dotnet test tests/Ranvier.Plume.Tests`; it fails to compile (no `Text`).
-- [ ] **Step 4:** Implement `LineScan.fs` (scalar `\n`/`\r` scan; `Vector256`/`Vector128` scan behind
+- [x] **Step 3:** Run `dotnet test tests/Ranvier.Plume.Tests`; it fails to compile (no `Text`).
+- [x] **Step 4:** Implement `LineScan.fs` (scalar `\n`/`\r` scan; `Vector256`/`Vector128` scan behind
   `#if !FABLE_COMPILER` with the scalar tail) and `Text.fs` from the extracted rope.
-- [ ] **Step 5:** Tests pass. Commit `feat: Text rope with offset addressing`.
+- [x] **Step 5:** Tests pass. Commit `feat: Text rope with offset addressing`.
 
 ### Task 2: `ChangeSet`
 
@@ -235,7 +235,7 @@ module ChangeSet =
 `compose` and `map` carry `Removed` through: a composed set's removed text is the first document's text, and a
 mapped set's removed text is the part the other set left in place.
 
-- [ ] **Step 1:** Write `ChangeSetTests.fs`. Generators: a document of 0-40 characters over `"ab\n"`, and a random
+- [x] **Step 1:** Write `ChangeSetTests.fs`. Generators: a document of 0-40 characters over `"ab\n"`, and a random
   valid spec list for a given length. Tests:
   - `apply agrees with String` (property).
   - `removed text is the replaced slice` (property): for `ofSpecs`, `compose` and `map` results, each changed range's
@@ -249,11 +249,11 @@ mapped set's removed text is the part the other set left in place.
     positions 0 and `length` map for an insertion at 0 and at `length`.
   - `ofSpecs rejects overlap`: `[ {From=0;To=3}; {From=2;To=4} ]` raises `ArgumentException`; `To > length` raises.
   - `line edits round-trip`: `toLineEdits d (ofLineEdits d edits)` applied through `ofLineEdits` gives the same text.
-- [ ] **Step 2:** Run; compile failure.
-- [ ] **Step 3:** Implement. Sections merge as CodeMirror's `addSection` does (adjacent unchanged sections join; a
+- [x] **Step 2:** Run; compile failure.
+- [x] **Step 3:** Implement. Sections merge as CodeMirror's `addSection` does (adjacent unchanged sections join; a
   replacement following a replacement joins). `apply` walks sections once and calls `Text.replace` back to front or
   builds by `slice`/`append`, whichever the many-range benchmark of Task 10 favours.
-- [ ] **Step 4:** Tests pass. Commit `feat: ChangeSet with removed text, compose, map and mapPos`.
+- [x] **Step 4:** Tests pass. Commit `feat: ChangeSet with removed text, compose, map and mapPos`.
 
 ### Task 3: `EditorSelection` and `RangeSet`
 
@@ -289,14 +289,14 @@ module RangeSet =
     val compare: RangeSet<'T> -> RangeSet<'T> -> (int * int) list   // ranges where coverage or value differs
 ```
 
-- [ ] **Step 1:** Tests. Selection: `create` merges `[0-5; 3-8]` into `0-8` and keeps the main range's index;
+- [x] **Step 1:** Tests. Selection: `create` merges `[0-5; 3-8]` into `0-8` and keeps the main range's index;
   `map` over an insertion before the head shifts it; over a deletion covering it collapses it; `clamp 3` on a
   cursor at 9 gives 3. RangeSet: `between 5 10` visits exactly the overlapping ranges; `map` shifts ranges after an
   insertion and drops a range inside a deletion; `update` adds in order and filters; `join` of two sets is sorted;
   property `map agrees with mapPos` on both endpoints (`Assoc.After` for From, `Assoc.Before` for To).
-- [ ] **Step 2:** Implement. `RangeSet.map` adds the length delta to every position after the last changed
+- [x] **Step 2:** Implement. `RangeSet.map` adds the length delta to every position after the last changed
   section in one loop over the flat arrays; positions before it go through `mapPos`.
-- [ ] **Step 3:** Tests pass. Commit `feat: EditorSelection and RangeSet`.
+- [x] **Step 3:** Tests pass. Commit `feat: EditorSelection and RangeSet`.
 
 ### Task 4: Transactions and `EditorState`
 
@@ -393,7 +393,7 @@ over the state). Facet inputs are ordered by `Prec`, then by position in the ext
 are all static is combined once per configuration. A selection is clamped to the new document and reduced to its
 main range unless `allowMultipleSelections` is true. Reconfiguring keeps the value of every field still present.
 
-- [ ] **Step 1:** Tests.
+- [x] **Step 1:** Tests.
   - `field counts doc changes`: the dossier's `editCount` field is 2 after two changing transactions and one
     selection-only transaction.
   - `facet precedence`: `tabSize.Of 2` at `Prec.Low` and `tabSize.Of 8` at default give 8; reversed list order with
@@ -409,8 +409,8 @@ main range unless `allowMultipleSelections` is true. Reconfiguring keeps the val
   - `effects map through changes`: an effect defined with a position map moves with an insertion before it.
   - `asForeign strips selection, effects and scroll`.
   - `transaction rejects a change beyond the document` (`ArgumentException`).
-- [ ] **Step 2:** Implement. Typed slots hold `obj` behind integer ids; no reflection.
-- [ ] **Step 3:** Tests pass. Commit `feat: transactions, facets, fields, compartments and EditorState`.
+- [x] **Step 2:** Implement. Typed slots hold `obj` behind integer ids; no reflection.
+- [x] **Step 3:** Tests pass. Commit `feat: transactions, facets, fields, compartments and EditorState`.
 
 ### Task 5: History and `Document`
 
@@ -462,7 +462,7 @@ stacks and starts a new epoch. Undo and redo append a transaction with `undoOp`.
 the item's `StartSelection` when the undoing source made the item, and otherwise the caller's selection mapped. The
 log drops transactions at or below the minimum registered reader cursor.
 
-- [ ] **Step 1:** `HistoryTests.fs` (pure, no graph):
+- [x] **Step 1:** `HistoryTests.fs` (pure, no graph):
   - `undo with nothing to undo` gives `ValueNone`.
   - `undo then redo restores text and selection`.
   - `typing groups by time`: three `input.type` insertions 100 ms apart are one item; one 600 ms later is a second.
@@ -474,7 +474,7 @@ log drops transactions at or below the minimum registered reader cursor.
   - `depth bounds the stack`: with `Depth = 3`, five isolated edits leave `undoDepth = 3`.
   - `position returns after undo`: position after edit then undo equals the starting position; after an
     unrecorded edit it differs.
-- [ ] **Step 2:** `DocumentTests.fs` (each test activates a `new Graph ()`):
+- [x] **Step 2:** `DocumentTests.fs` (each test activates a `new Graph ()`):
   - `text follows dispatch`; `two dispatches in one batch wake an effect once and lose nothing`.
   - `transaction against an older head is mapped`: head has an insert of "ab" at 0; `PostAt 0L` deleting `[1, 2)` of
     the original deletes the same character in the current text.
@@ -483,8 +483,8 @@ log drops transactions at or below the minimum registered reader cursor.
   - `cross-file group`: two documents receive transactions with one `group` id; each has `undoDepth = 1`, and undoing
     one leaves the other's text unchanged.
   - `Post from another thread` lands after `graph.Pump ()`.
-- [ ] **Step 3:** Implement `History.fs`, then `Document.fs`.
-- [ ] **Step 4:** Tests pass. Commit `feat: the log, Document and history as a reader`.
+- [x] **Step 3:** Implement `History.fs`, then `Document.fs`.
+- [x] **Step 4:** Tests pass. Commit `feat: the log, Document and history as a reader`.
 
 ### Task 6: `Editor`
 
@@ -522,7 +522,7 @@ runs in one `Api.batch`: read `State` (folds to the head), build the transaction
 document clock's time, `Append`. A reader created by `Updates ()` registers a cursor and removes it on cleanup; its
 first `Read` returns an empty update at the current state.
 
-- [ ] **Step 1:** Tests:
+- [x] **Step 1:** Tests:
   - the dossier's section 4.7 sketch compiles and runs: `edits.Value = 1`, text is `"let result = 42\n"`.
   - `selection memo does not wake on a foreign edit after the cursor`: an effect on `editor.Selection` runs once.
   - `two editors converge with separate selections`: A at 3 and B at 10 on one document; A inserts 2 characters at
@@ -537,8 +537,8 @@ first `Read` returns an empty update at the current state.
   - `read-only`: `EditorState.readOnly.Of true` leaves `Dispatch [Tx.change ...; Tx.userEvent "input.type"]`
     without effect, and applies a change with no user event.
   - `disposing the owner unregisters the reader`: the log length returns to 0 after further dispatches.
-- [ ] **Step 2:** Implement.
-- [ ] **Step 3:** Tests pass. Commit `feat: Editor with state fold, slices and update readers`.
+- [x] **Step 2:** Implement.
+- [x] **Step 3:** Tests pass. Commit `feat: Editor with state fold, slices and update readers`.
 
 ### Task 7: Commands, keymaps, language
 
@@ -598,13 +598,13 @@ Motion uses `Ranvier.Keyboard`'s grapheme rules. Vertical motion keeps `GoalColu
 Ctrl+A, Enter, Backspace, Delete, Tab (inserts `indentUnit`); `Keymap.history` holds Ctrl+Z and Ctrl+Y /
 Ctrl+Shift+Z; `Keymap.defaults` is both.
 
-- [ ] **Step 1:** Tests: char motion over `"a😀b"` moves by grapheme; group motion over `"foo bar"`;
+- [x] **Step 1:** Tests: char motion over `"a😀b"` moves by grapheme; group motion over `"foo bar"`;
   line up and down keep the goal column across a short line; `selectAll`; `deleteCharBackward` at 0 returns false;
   delete over a selection removes it; `insertNewlineKeepIndent` copies leading spaces; a two-stroke binding returns
   `Pending` then `Handled`; a higher-precedence binding wins; `Shift` form runs with Shift held; token cache hit
   and miss counts; `HighlightStyle.classOf`.
-- [ ] **Step 2:** Implement.
-- [ ] **Step 3:** Tests pass. Run `dotnet fsi --exec build.fsx -- ci`. Commit `feat: commands, keymaps and the line tokenizer model`.
+- [x] **Step 2:** Implement.
+- [x] **Step 3:** Tests pass. Run `dotnet fsi --exec build.fsx -- ci`. Commit `feat: commands, keymaps and the line tokenizer model`.
 
 ### Task 8: `Ranvier.Plume.View`
 
@@ -700,11 +700,11 @@ Design fixed here:
 - **Constants** kept from the baseline: line height 20 (theme), overscan 6, rebase 700 lines, lead 16,000 px,
   sheet 36,000 px, thumb minimum 28 px.
 
-- [ ] **Step 1:** Spike in a scratch test: a component from this package applying a recorded utility, mounted in a
+- [x] **Step 1:** Spike in a scratch test: a component from this package applying a recorded utility, mounted in a
   hidden window whose sheet received the exposed definitions, has the utility's computed style. A
   `Frames.frame` callback scheduled from an effect runs once for three writes to a signal. If either fails, stop
   and report.
-- [ ] **Step 2:** Smoke test (`tests/Ranvier.Plume.View.Tests`, hidden window, 1280 x 800):
+- [x] **Step 2:** Smoke test (`tests/Ranvier.Plume.View.Tests`, hidden window, 1280 x 800):
   - mounts a 1,000,000-line document; after two steps the row pool has `ceil(h / 20) + 13` elements and the first
     row's text is line 1's.
   - `ScrollBy 60.0` then one frame: exactly 3 rows recomputed (`RowsWritten` delta), `scrollTop` moved by 60.
@@ -717,8 +717,8 @@ Design fixed here:
   - degenerate: height 0 mounts with pool 0 and no exception; a 3-line document shows 3 lines and blank slots;
     `ScrollTo 1e12` clamps to the maximum.
   - a compartment that removes `LineNumbers` empties the gutter cell and disposes the plugin's owner.
-- [ ] **Step 3:** Implement the package.
-- [ ] **Step 4:** Tests pass; `ci` passes. Commit `feat: Ranvier.Plume.View`.
+- [x] **Step 3:** Implement the package.
+- [x] **Step 4:** Tests pass; `ci` passes. Commit `feat: Ranvier.Plume.View`.
 
 ### Task 9: The sample and the baseline stopwatch
 
@@ -739,29 +739,29 @@ Modes: interactive, `--shot`, `--bench` (the nine rows of `Harness.fs:254-263`, 
 `GC.GetTotalMemory true` before and after; prints bytes per insertion), `--load` (7.3: UTF-8 bytes of the
 1,000,000-line file; `Text.ofUtf8Scalar` and `Text.ofUtf8`, 10 runs each after 3 warm-ups, median).
 
-- [ ] **Step 1:** Build the sample; `--shot` produces a PNG that shows text, gutter, caret and scrollbar (read it).
-- [ ] **Step 2:** Add the Dispatch stopwatch to the baseline harness; build it; `--bench` prints three column groups.
-- [ ] **Step 3:** Sample `--bench`, `--memory`, `--load` run to completion hidden.
-- [ ] **Step 4:** Commit `feat: EditorShowcase sample on Ranvier.Plume`. (The baseline edit is outside any repository.)
+- [x] **Step 1:** Build the sample; `--shot` produces a PNG that shows text, gutter, caret and scrollbar (read it).
+- [x] **Step 2:** Add the Dispatch stopwatch to the baseline harness; build it; `--bench` prints three column groups.
+- [x] **Step 3:** Sample `--bench`, `--memory`, `--load` run to completion hidden.
+- [x] **Step 4:** Commit `feat: EditorShowcase sample on Ranvier.Plume`. (The baseline edit is outside any repository.)
 
 ### Task 10: SIMD checks
 
-- [ ] **Step 1:** `--load`: record scalar and vectorised medians. If the vectorised scan is not faster, `Text.ofUtf8`
+- [x] **Step 1:** `--load`: record scalar and vectorised medians. If the vectorised scan is not faster, `Text.ofUtf8`
   calls the scalar scan and `LineScan`'s vector path is deleted.
-- [ ] **Step 2:** Many-range apply: a test-project benchmark (`--filter`-free console mode of the sample, `--apply`)
+- [x] **Step 2:** Many-range apply: a test-project benchmark (`--filter`-free console mode of the sample, `--apply`)
   applies 10,000 single-character replacements over the 1,000,000-line document as one `ChangeSet`; record the time
   and confirm one pass (no per-change full-tree rebuild) by comparing with 10,000 sequential `Text.replace` calls.
-- [ ] **Step 3:** Commit `perf: keep or drop the vectorised line scan by measurement`.
+- [x] **Step 3:** Commit `perf: keep or drop the vectorised line scan by measurement`.
 
 ### Task 11: Acceptance
 
-- [ ] **Step 1:** 7.1: baseline `--bench` and sample `--bench`, alternating, three runs each, one session. Record
+- [x] **Step 1:** 7.1: baseline `--bench` and sample `--bench`, alternating, three runs each, one session. Record
   every row. Apply the pass rules of 7.1.
-- [ ] **Step 2:** 7.2: `--memory`; pass under 512 bytes per insertion. Set `History.defaults.Depth` from the
+- [x] **Step 2:** 7.2: `--memory`; pass under 512 bytes per insertion. Set `History.defaults.Depth` from the
   figure and state the arithmetic.
-- [ ] **Step 3:** If a 7.1 row fails: profile, and fix inside the core-lookup design. If the cause is a core
+- [x] **Step 3:** If a 7.1 row fails: profile, and fix inside the core-lookup design. If the cause is a core
   primitive, stop and report the primitive and the missing behaviour.
-- [ ] **Step 4:** Write `docs/ACCEPTANCE.md` with the tables and labels. Update the dossier's status line and
+- [x] **Step 4:** Write `docs/ACCEPTANCE.md` with the tables and labels. Update the dossier's status line and
   decision 17.
-- [ ] **Step 5:** `dotnet fsi --exec build.fsx -- ci`; `rfs check --fail-on-error`; fresh-context review of the
+- [x] **Step 5:** `dotnet fsi --exec build.fsx -- ci`; `rfs check --fail-on-error`; fresh-context review of the
   whole repository; commit `docs: acceptance measurements`.

@@ -14,7 +14,7 @@ open Ranvier
 open Ranvier.Plume
 
 let document = Document.create (Text.ofString "let answer = 42\n")
-let editor = Editor.create document [ Keymap.extension Keymap.defaults ]
+let editor = Editor.create document [ Keymap.extension Keymap.defaults ]   // under a Ranvier owner
 
 Api.createEffect (fun () -> printfn "caret at %d" editor.Selection.Value.Main.Head)
 
@@ -22,3 +22,23 @@ editor.Dispatch [ Tx.change { From = 4; To = 10; Insert = Text.ofString "result"
 ```
 
 The design is in [docs/DOSSIER.md](docs/DOSSIER.md). Pre-1.0: the API may change.
+
+## Build, test and measure
+
+```
+dotnet fsi --exec build.fsx -- ci
+```
+
+builds the solution in Release and runs both test projects (the view tests open hidden windows).
+
+The sample in `samples/EditorShowcase` is the workspace's `EditorShowcase` rebuilt on the library:
+
+```
+dotnet run -c Release --project samples/EditorShowcase                 # the window
+dotnet run -c Release --project samples/EditorShowcase -- --bench      # frame cost, hidden window
+dotnet run -c Release --project samples/EditorShowcase -- --memory     # what history holds
+dotnet run -c Release --project samples/EditorShowcase -- --load       # scalar against vectorised line scan
+dotnet run -c Release --project samples/EditorShowcase -- --shot out.png
+```
+
+The phase 1 measurements are in [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
