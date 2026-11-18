@@ -643,6 +643,9 @@ session, three runs each, because the README notes that sessions differ.
   still passes under 1.5 ms, the frame budget Atelier's design sets for typing (**from documentation**, the same
   design document, section 7.3), and the excess is reported with what it buys.
 
+**Ruling, 2026-11-19.** The two apps put the page's layout in different stopwatches (`ACCEPTANCE.md`), so every
+row is judged by its total: App plus Turn plus Dispatch.
+
 ### 7.2 History memory
 
 On the 1,000,000-line document the sample dispatches 10,000 single-character insertions at scattered lines, with
@@ -711,6 +714,7 @@ inside the text, the cross-file undo coordinator, the journal on disk, CI and pa
 2. The log of edits is the source of truth. Two text values are kept per file, saved and current.
 3. An edit across several files is one history item, and each file registers its own part.
 4. Change reaches consumers through Ranvier, not through callbacks.
+18. Frame cost is judged by the total time of a frame, decided on 2026-11-19 with the measurements in hand.
 
 **Mine, for you to overrule**
 

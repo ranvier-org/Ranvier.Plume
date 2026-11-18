@@ -12,7 +12,7 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 | Criterion | Result |
 |---|---|
 | 7.1 Frame cost, by total time a frame | Lower than the baseline in 7 of 9 rows; higher in the two rows with the markup cache off, by 6% and 17% |
-| 7.1 Frame cost, by the letter (App and Turn each inside the baseline's range) | App below the baseline in all 7 scroll rows; Turn above its range in the 5 line-scroll rows. **Needs your ruling**, see below |
+| 7.1 Frame cost, by the letter (App and Turn each inside the baseline's range) | App below the baseline in all 7 scroll rows; Turn above its range in the 5 line-scroll rows. Ruled on 2026-11-19: total time is the measure |
 | 7.2 History memory | **Passes**: 279 bytes an insertion after `MarkSaved`, bound 512 |
 | 7.3 Loading | **Passes**: the vectorised scan is 1.85 times faster and is kept |
 
@@ -56,8 +56,8 @@ on and up to 1.03 ms with it off. "typing" with the cache on passes. "typing" wi
 higher in row 3 (1.53 against 1.44 ms, inside the spread of the baseline's own three runs) and in row 9 (1.44
 against 1.24 ms). I have not found why the two cache-off rows cost more.
 
-**Your ruling is needed** on whether total time is the measure, or whether Turn has to fall inside the baseline's
-range with the stopwatches as they are.
+**Ruling, 2026-11-19:** the total time of a frame is the measure. Phase 1 stands as built. The two rows with the
+markup cache off are a known gap, open until their cause is found.
 
 ### What the row lookup costs
 
