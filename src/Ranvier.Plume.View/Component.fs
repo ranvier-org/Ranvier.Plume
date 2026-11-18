@@ -502,7 +502,13 @@ module internal Handlers =
             pe.preventDefault ()
             surface.View.Focus ()
             PointerInput.press surface (float pe.clientX - rect.left) (float pe.clientY - rect.top) pe.shiftKey
-            element.setPointerCapture pe.pointerId
+
+            // Without the capture no release is sure to arrive, so the press selects and no drag follows.
+            try
+                element.setPointerCapture pe.pointerId
+            with _ ->
+                PointerInput.release surface
+                reraise ()
         | _ -> ()
 
     let pointerMove (surface: Surface) (pe: PointerEvent) =

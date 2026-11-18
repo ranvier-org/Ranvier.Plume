@@ -233,11 +233,20 @@ let tests =
                     Expect.equal (shown mounted "[data-pm~=selection]").Length 5 "the selection is drawn on each of its lines"
                     Expect.sequenceEqual (inked mounted) [ "8" ] "the line of the head is the active one"
 
-                    // A point in the gutter is the start of its line, and one below the last line is in the last line.
+                    // A point in the gutter is the start of its line.
                     mounted.Run (fun () -> PointerInput.press surface 10.0 (y 9) false)
                     Expect.equal (ends ()) (at 9 0, at 9 0) "a press in the gutter"
                     mounted.Run (fun () -> PointerInput.release surface)
                     Expect.equal (HistoryState.undoDepth (mounted.Run (fun () -> editor.Document.History.Value))) 0 "a selection is no history item")
+
+            testCase "a press below the last line lands in the last line"
+            <| fun () ->
+                withView [ "ab"; "cd" ] standard 800 (fun mounted ->
+                    let view = mounted.View
+                    let surface = (Surface.find mounted.Editor).Value
+                    mounted.Run (fun () -> PointerInput.press surface (view.GutterWidth.Value + view.CharWidth.Value + 0.5) 500.0 false)
+                    Expect.equal mounted.Editor.Selection.Value.Main.Head 4 "after the first character of the last line"
+                    mounted.Run (fun () -> PointerInput.release surface))
 
             testCase "the wheel scrolls by its delta and the scrollbar by where its thumb is put"
             <| fun () ->
@@ -262,6 +271,11 @@ let tests =
                     mounted.Run (fun () -> PointerInput.thumbTo surface 400.0 800.0)
                     mounted.Step ()
                     Expect.equal view.ScrollTop.Value (Math.Round (range * (400.0 - thumb / 2.0) / (800.0 - thumb))) "the thumb centred on the track's middle"
+                    // A quarter of the way down, the thumb's centre and its top give different places.
+                    mounted.Run (fun () -> PointerInput.thumbTo surface 200.0 800.0)
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value (Math.Round (range * (200.0 - thumb / 2.0) / (800.0 - thumb))) "the thumb centred a quarter of the way down"
+                    Expect.isLessThan view.ScrollTop.Value (range / 4.0 - 100.0) "which is above a quarter of the range"
                     mounted.Run (fun () -> PointerInput.thumbTo surface -50.0 800.0)
                     mounted.Step ()
                     Expect.equal view.ScrollTop.Value 0.0 "a point above the track is the document's top")

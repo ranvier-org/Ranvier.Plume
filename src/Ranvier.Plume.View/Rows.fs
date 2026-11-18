@@ -108,9 +108,8 @@ type internal MarkupCache(theme: Theme, capacity: int) =
 
             Html.escapeInto builder line at line.Length
 
-            // Markup of text alone ends with an empty comment. The engine writes text alone into the text node
-            // already in the row, and rows scrolled that way cost it more than rows given new nodes
-            // (`ACCEPTANCE.md`).
+            // Markup of text alone ends with an empty comment: without it, rows of such lines cost the engine
+            // more to scroll (`ACCEPTANCE.md`, 7.1).
             if spans = 0 then
                 builder.Append "<!---->" |> ignore
 

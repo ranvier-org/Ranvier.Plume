@@ -18,8 +18,10 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 ## 7.1 Frame cost
 
 `EditorShowcase --bench` (the baseline, with the Dispatch stopwatch added) and
-`Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code as
-committed. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line file. Values are means of a
+`Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code of
+commit `7b2e860`. The commits after it change the pointer-down handler, tests, the sample's `--profile` mode and
+comments, none of which `--bench` runs. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
+file. Values are means of a
 run in milliseconds; a cell gives the lowest and highest of the five runs. The last column compares the means of
 the five runs, and counts the pairs in which Plume's run was below the baseline's run made just before it. The
 raw logs are in `bench/`.
@@ -63,7 +65,8 @@ of one record compares with the baseline of the same record only.
 
 1. **A keystroke makes three writes to the page** (`--writes`: a mutation observer on the document's body, 20
    frames): the children of the line's slot, the style of the cursor's element, and the text of the sample's
-   status line. A 3-line scroll makes about ten: the style, the gutter slot and the line slot of each row that
+   status line. The sample's statistics panel adds text writes when it publishes, four times a second (0.3 a
+   frame in two runs of four). A 3-line scroll makes about ten: the style, the gutter slot and the line slot of each row that
    takes another line, and the style of the scrollbar's thumb.
 2. **An edit wrote the line's gutter marker again.** A row was one markup slot holding the markers and the line.
    A row now has a slot for each, so an edit writes the line and leaves the markers' elements in place. Rows of
@@ -82,17 +85,21 @@ of one record compares with the baseline of the same record only.
 4. **A facet without inputs took a lock on every read, and the row configuration was built on every
    transaction** before it was compared with the one before. A facet now keeps its own default, and the
    configuration is compared first.
-5. **Markup of text alone was slow to scroll.** The engine writes markup that is text alone into the text node
-   already in the element, and rows scrolled that way cost it more than rows given new nodes. With rows of two
-   slots, `--profile` had scrolling without a language at 1.15 times the total of scrolling with one (1.68
-   against 1.46 ms). The markup of a line without spans now ends with an empty comment, and the same comparison
-   reads 0.81 times (0.90 against 1.12 ms). Each ratio is within one run.
+5. **Lines of text alone were slow to scroll.** With rows of two slots, `--profile` had scrolling without a
+   language at 1.15 times the total of scrolling with one (1.68 against 1.46 ms). The markup of a line without
+   spans now ends with an empty comment, and the same comparison reads 0.81 and 0.79 times in two runs (0.90
+   against 1.12 ms, and 1.17 against 1.48 ms). Each ratio is within one run. Why the comment helps is not
+   established. My guess is that the engine writes markup of text alone into the text node already in the
+   element (**general knowledge** of WebKit, not checked on this build); the second reviewer's probe could not
+   settle it.
 
 `--profile` types and scrolls as `--bench` does, in rounds in one window, with the view's features switched off
-one at a time. With every feature on, typing's Dispatch was 0.17 and 0.22 ms before these changes (two runs) and
-is 0.13 ms on the code as committed (one run; 0.14, 0.14 and 0.12 ms in three runs while the changes were being
-made). The App time of the 3-line scroll was 0.42 and 0.44 ms and is 0.32 ms (0.35, 0.36 and 0.34 ms). On the
-code as committed the three layers together add 0.03 ms to a keystroke's Dispatch (0.130 against 0.097 ms).
+one at a time. It found these costs; its absolute figures move between runs, so the comparison that counts is
+the table above. With every feature on, typing's Dispatch was 0.17 and 0.22 ms in two runs before the changes and
+0.12 to 0.16 ms in five runs after them; the App time of the 3-line scroll was 0.42 and 0.44 ms, and 0.32 to
+0.41 ms after. The three layers together add 0.03 to 0.04 ms to a keystroke's Dispatch (0.130 against 0.097 ms,
+and 0.159 against 0.118 ms). All but the last of those runs were made while the mode typed, in its later rounds,
+on lines that earlier rounds had lengthened (the second review's finding, corrected since).
 
 **Where the rest of a typing frame goes.** The turn after a keystroke is about 0.9 ms in both apps. About half
 of it is the repaint of what lies between the edited row and the status line: in the temporary mode, a new status
@@ -130,7 +137,7 @@ are therefore markup. I did not find why the baseline, which writes its line num
 
 `samples/EditorShowcase --memory`: 10,000 single-character insertions at lines `(i * 7919) mod 1,000,000`, each
 its own history item, with an undo depth of 20,000. `GC.GetTotalMemory(true)` after a full collection. Measured
-on the code as committed.
+at commit `7b2e860`.
 
 | Measured | Growth | An insertion |
 |---|---|---|
@@ -211,6 +218,26 @@ history stack past its depth and across unrecorded edits (220,000 runs), a trans
 deletion, and the row window for consecutive scrolls and edits (18 seeds of 250 steps). Those figures are the
 reviewer's.
 
+### Second review, of commit `7b2e860`
+
+A second reviewer with no part in the work read the commit that made typing level with the baseline. It found
+no defect in the library's behaviour, and two of low severity elsewhere, both fixed:
+
+| Finding | Fix |
+|---|---|
+| The scrollbar test put the thumb only where its centre and its top give the same place, so it passed with the centring removed | The test also puts the thumb a quarter of the way down; with the centring removed it now fails (4810 against 4610) |
+| `--profile` typed, in its later rounds, on lines that earlier rounds had lengthened, against its own comment | Each typing run has 40 lines of the file to itself |
+
+One thing it could not run is changed as well: a press that failed to capture the pointer left the view
+extending the selection on later moves. The press now selects and no drag follows. It also could not confirm why
+the empty comment of 7.1, point 5 helps; that sentence now says so.
+
+Its checks, by its own figures: a probe comparing every row, marker and rectangle with the document after each
+turn found no failure over 6 seeds of 5 document sizes and 220 turns, six line heights that are not whole
+numbers, and two editors or two views on one document; the text view of commit `7b2e860` is pixel-identical to
+its parent's in `--shot` for the three sample files; and 4,000 rounds of 8 racing threads read one instance of a
+facet's default.
+
 ## Settled before the view was built
 
 - **Styles hand-off: no change to Ranvier.Css.** `EditorView.create` returns the component, the
@@ -242,8 +269,8 @@ reviewer's.
 - **The host constructs no pointer or wheel event.** `Ranvier.Dom.EventConstruction` has `Event`, `Custom`, `UI`,
   `Mouse`, `Keyboard` and `Focus` (**from source**, `Ranvier/src/Ranvier.Dom/EventConstruction.fs`). The view's
   pointer and wheel logic is tested through the functions its listeners call, with the values an event carries.
-- **The engine writes markup of text alone into the text node already there**, and rows scrolled that way cost
-  more (7.1, point 5). The view ends such markup with an empty comment.
+- **Rows whose line is text alone cost the engine more to scroll** (7.1, point 5). The view ends such markup
+  with an empty comment. The cause is not established.
 
 ## Not verified
 
@@ -260,4 +287,5 @@ reviewer's.
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 112 tests and the view has 23. `rfs check --fail-on-error` reports 0 errors in 5 projects.
+The state package has 112 tests and the view has 24. `rfs check --fail-on-error` reports 0 errors in 5 projects,
+after a Debug build and `rfs status --reload`.

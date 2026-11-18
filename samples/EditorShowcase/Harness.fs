@@ -321,7 +321,8 @@ let private profile (options: Options) =
         // of the run then holds that workload alone.
         let only = Environment.GetEnvironmentVariable "PLUME_PROFILE"
         let chosen (key: string) = String.IsNullOrEmpty only || key = only
-        // Every typing run starts on a line no run has typed on.
+        // Each typing run has 40 lines of the file to itself, so it types on a line no run has typed on, and a
+        // scroll run starts after them all.
         let mutable typed = 0
 
         for round in 0 .. rounds - 1 do
@@ -336,8 +337,9 @@ let private profile (options: Options) =
                         switch feature false
 
                     graph.Run(fun () ->
-                        view.ScrollTo(1000.0 * lineHeight)
-                        let start = (Text.line (1004 + typed % 28) editor.Text.Value).From
+                        let first = 1000 + 40 * typed
+                        view.ScrollTo(float first * lineHeight)
+                        let start = (Text.line (first + 4) editor.Text.Value).From
                         editor.Dispatch [ Tx.selection (EditorSelection.single start start) ])
 
                     if workload = "typing" then
