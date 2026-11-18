@@ -233,10 +233,12 @@ reviewer's.
   scheduler, and has not run under a display.
 - **A `Ranvier.Css` reader value is lowered again on every render of its element's instance** (7.1, point 3;
   Ranvier.Css 0.1.1). `CssView.partsWithInline` (`Ranvier.Css/src/Ranvier.Css.View/Bindings.fs`) calls
-  `Style.variableDeclarations` on each read of the style attribute. I did not read `Style` itself, so what it
-  keeps between reads is known from the trace only. The baseline uses reader values throughout. A cache of the
-  lowered text in Ranvier.Css would let the view use them again; the place is marked `//FOR-REVIEW` in
-  `Component.fs`.
+  `Style.variableDeclarations` on each read of the style attribute, and that function
+  (`Ranvier.Css/src/Ranvier.Css/Styles.fs`, line 229) runs every reader: each run builds the typed declaration,
+  checks it for CSS-wide keywords and makes the variable's declaration, and nothing is kept between reads
+  (**from source**, the workspace's checkout at version 0.1.1). The baseline uses reader values throughout. A
+  cache of the lowered text in Ranvier.Css would let the view use them again; the place is marked
+  `//FOR-REVIEW` in `Component.fs`.
 - **The host constructs no pointer or wheel event.** `Ranvier.Dom.EventConstruction` has `Event`, `Custom`, `UI`,
   `Mouse`, `Keyboard` and `Focus` (**from source**, `Ranvier/src/Ranvier.Dom/EventConstruction.fs`). The view's
   pointer and wheel logic is tested through the functions its listeners call, with the values an event carries.
