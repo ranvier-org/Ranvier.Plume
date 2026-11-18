@@ -31,6 +31,15 @@ let private gutterOf (row: Element) : string =
 let private textOf (row: Element) : string =
     row.textContent.Substring (gutterOf row).Length
 
+/// The element that holds a row's line.
+let private lineOf (row: Element) : Element = row.lastChild :?> Element
+
+/// The rows whose gutter markers take the text colour.
+let private inked (mounted: Mounted) : string[] =
+    mounted.Rows
+    |> Array.filter (fun row -> (row.getAttribute "style").Contains "--pm-gutter-ink")
+    |> Array.map gutterOf
+
 /// The elements of `selector` that are laid out with an area.
 let private shown (mounted: Mounted) (selector: string) : DOMRect[] =
     mounted.Query selector
@@ -56,6 +65,8 @@ let tests =
                     Expect.equal (textOf rows[0]) "line 0" "first row"
                     Expect.equal (gutterOf rows[0]) "1" "first line number"
                     Expect.equal (textOf rows[20]) "line 20" "row 20"
+                    Expect.floatClose Accuracy.medium (rows[20].getBoundingClientRect ()).top 400.0 "row 20 is twenty lines down"
+                    Expect.floatClose Accuracy.medium (rows[20].getBoundingClientRect ()).height 20.0 "a row is one line high"
                     Expect.equal view.Viewport.Value.FirstLine 0 "first line shown"
                     Expect.equal view.Viewport.Value.LastLine 40 "last line shown"
                     Expect.floatClose Accuracy.medium view.GutterWidth.Value 72.0 "gutter width"
@@ -165,6 +176,7 @@ let tests =
                     let bands = shown mounted "[data-pm~=active-line]"
                     Expect.equal bands.Length 1 "one active line band"
                     Expect.floatClose Accuracy.medium bands[0].top 60.0 "band top"
+                    Expect.sequenceEqual (inked mounted) [ "4" ] "the gutter marker of the cursor's line takes the text colour"
 
                     let first = Text.line 1 editor.Text.Value
                     let second = Text.line 6 editor.Text.Value
@@ -179,6 +191,80 @@ let tests =
                     let selected = shown mounted "[data-pm~=selection]"
                     Expect.equal selected.Length 4 "one rectangle for the first range and one per line of the second"
                     Expect.equal (shown mounted "[data-pm~=cursor]").Length 2 "a cursor per range")
+
+            testCase "an edit to a line leaves its gutter marker's element in place"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let editor = mounted.Editor
+                    let line = Text.line 3 editor.Text.Value
+                    (mounted.Rows[3].querySelector "[data-pm~=gutter]").setAttribute ("data-seen", "before")
+                    mounted.Run (fun () -> editor.Dispatch [ insert line.To "!" ])
+                    mounted.Step ()
+                    Expect.equal (textOf mounted.Rows[3]) "line 3!" "the row shows the edit"
+                    Expect.equal ((mounted.Rows[3].querySelector "[data-pm~=gutter]").getAttribute "data-seen") "before" "the marker is the element it was"
+
+                    // A row that takes another line takes that line's markers.
+                    mounted.Run (fun () -> mounted.View.ScrollTo (500.0 * 20.0))
+                    mounted.Step ()
+                    Expect.equal (mounted.Query "[data-seen]").Length 0 "a row given another line has new markers")
+
+            testCase "a press places the cursor, a move selects, and a press with Shift extends"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let view = mounted.View
+                    let editor = mounted.Editor
+                    let surface = (Surface.find editor).Value
+                    let x (column: int) = view.GutterWidth.Value + float column * view.CharWidth.Value + 0.5
+                    let y (line: int) = float line * 20.0 + 5.0
+                    let at (line: int) (column: int) = (Text.line line editor.Text.Value).From + column
+                    let ends () = let main = editor.Selection.Value.Main in main.Anchor, main.Head
+
+                    mounted.Run (fun () -> PointerInput.press surface (x 2) (y 3) false)
+                    Expect.equal (ends ()) (at 3 2, at 3 2) "the cursor is where the press was"
+                    mounted.Run (fun () -> PointerInput.move surface (x 4) (y 5))
+                    Expect.equal (ends ()) (at 3 2, at 5 4) "a move takes the head with it"
+                    mounted.Run (fun () -> PointerInput.release surface)
+                    mounted.Run (fun () -> PointerInput.move surface (x 0) (y 0))
+                    Expect.equal (ends ()) (at 3 2, at 5 4) "a move after the release selects nothing"
+                    mounted.Run (fun () -> PointerInput.press surface (x 1) (y 7) true)
+                    Expect.equal (ends ()) (at 3 2, at 7 1) "a press with Shift keeps the anchor"
+                    mounted.Run (fun () -> PointerInput.release surface)
+                    mounted.Step ()
+                    Expect.equal (shown mounted "[data-pm~=selection]").Length 5 "the selection is drawn on each of its lines"
+                    Expect.sequenceEqual (inked mounted) [ "8" ] "the line of the head is the active one"
+
+                    // A point in the gutter is the start of its line, and one below the last line is in the last line.
+                    mounted.Run (fun () -> PointerInput.press surface 10.0 (y 9) false)
+                    Expect.equal (ends ()) (at 9 0, at 9 0) "a press in the gutter"
+                    mounted.Run (fun () -> PointerInput.release surface)
+                    Expect.equal (HistoryState.undoDepth (mounted.Run (fun () -> editor.Document.History.Value))) 0 "a selection is no history item")
+
+            testCase "the wheel scrolls by its delta and the scrollbar by where its thumb is put"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let view = mounted.View
+                    let surface = (Surface.find mounted.Editor).Value
+                    // The scroll range of 1,000 lines of 20 pixels in 800 pixels, with two lines of room after the last.
+                    let range = 1000.0 * 20.0 - 800.0 + 40.0
+
+                    mounted.Run (fun () -> PointerInput.wheel surface 120.0)
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value 120.0 "the wheel's delta"
+                    mounted.Run (fun () -> PointerInput.wheel surface -500.0)
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value 0.0 "the document's top stops it"
+
+                    let thumb = 800.0 * 800.0 / (range + 800.0)
+                    mounted.Run (fun () -> PointerInput.thumbTo surface 800.0 800.0)
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value range "the thumb at the track's end is the document's end"
+                    Expect.equal (textOf mounted.Rows[999 % mounted.Rows.Length]) "line 999" "the last line is in the pool"
+                    mounted.Run (fun () -> PointerInput.thumbTo surface 400.0 800.0)
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value (Math.Round (range * (400.0 - thumb / 2.0) / (800.0 - thumb))) "the thumb centred on the track's middle"
+                    mounted.Run (fun () -> PointerInput.thumbTo surface -50.0 800.0)
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value 0.0 "a point above the track is the document's top")
 
             testCase "keys run the keymap and printable keys insert"
             <| fun () ->
@@ -410,7 +496,20 @@ let tests =
                         else
                             Array.empty)
 
-                withView [ "let x = 1 < 2"; "plain & simple" ] [ Language.extension language ] 800 (fun mounted ->
-                    Expect.equal mounted.Rows[0].innerHTML "<span class=\"t1\">let</span> x = 1 &lt; 2" "a keyword span, and escaped text"
-                    Expect.equal (textOf mounted.Rows[1]) "plain & simple" "escaped text reads back")
+                withView [ "let x = 1 < 2"; "plain & simple"; "" ] [ Language.extension language ] 800 (fun mounted ->
+                    Expect.equal (lineOf mounted.Rows[0]).innerHTML "<span class=\"t1\">let</span> x = 1 &lt; 2" "a keyword span, and escaped text"
+                    Expect.equal (textOf mounted.Rows[1]) "plain & simple" "escaped text reads back"
+                    Expect.equal (lineOf mounted.Rows[1]).innerHTML "plain &amp; simple<!---->" "a line without spans ends with an empty comment"
+                    Expect.equal (lineOf mounted.Rows[2]).innerHTML "" "an empty line has no markup")
+
+            testCase "a line without a language is its text and an empty comment"
+            <| fun () ->
+                withView [ "a < b"; "" ] [] 800 (fun mounted ->
+                    Expect.equal (lineOf mounted.Rows[0]).innerHTML "a &lt; b<!---->" "escaped text and the comment"
+                    Expect.equal (textOf mounted.Rows[0]) "a < b" "the row reads as the line"
+                    Expect.equal (lineOf mounted.Rows[1]).innerHTML "" "an empty line"
+                    mounted.Run (fun () -> mounted.Editor.Dispatch [ insert 5 "!" ])
+                    mounted.Step ()
+                    Expect.equal (lineOf mounted.Rows[0]).innerHTML "a &lt; b!<!---->" "after an edit"
+                    Expect.equal (lineOf mounted.Rows[0]).childNodes.length 2u "a text node and a comment")
         ]

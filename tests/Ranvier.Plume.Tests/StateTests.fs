@@ -178,6 +178,19 @@ let tests =
                 let grown = EditorState.facet all (run [ Tx.effect (EditorState.appendConfig.Of (all.Of 3)) ] state)
                 Expect.equal grown [| 1; 2; 3 |] "another input gives another value"
 
+            testCase "a facet without inputs has one value in every state"
+            <| fun () ->
+                let all = Facet.define (fun (values: int[]) -> values)
+                let bare = stateOf "" []
+                let other = stateOf "x" [ EditorState.tabSize.Of 2 ]
+                Expect.equal (EditorState.facet all bare) Array.empty "the value of no inputs"
+                Expect.isTrue (obj.ReferenceEquals (EditorState.facet all bare, EditorState.facet all bare)) "the same value on each read"
+                Expect.isTrue (obj.ReferenceEquals (EditorState.facet all bare, EditorState.facet all other)) "and in a state of another configuration"
+
+                let nothing = Facet.define (fun (values: string[]) -> if values.Length = 0 then null else values[0])
+                Expect.isNull (EditorState.facet nothing bare) "a value of null is a value"
+                Expect.equal (EditorState.facet nothing (stateOf "" [ nothing.Of "set" ])) "set" "an input replaces it"
+
             testCase "selection follows changes"
             <| fun () ->
                 let state =

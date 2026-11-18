@@ -12,14 +12,14 @@ Editor showcase --bench
   rows       rows whose content Editor.Sync wrote in the frame (Editor.LastRebound), mean over the timed frames
 
   workload   recycling  cache  layer   rows/frame   dispatch ms mean  median     p95    app ms mean  median     p95   turn ms mean  median     p95   total mean
-  lines x3   on         on     on          3.2         0.001   0.001   0.003         0.757   0.653   0.950         0.825   0.479   2.600       1.583
-  lines x3   off        on     on         49.0         0.002   0.002   0.004         3.689   3.587   4.607         3.502   3.840   5.429       7.193
-  lines x3   on         off    on          3.2         0.000   0.000   0.001         0.591   0.555   0.848         0.800   0.503   2.521       1.391
-  lines x3   off        off    on         49.0         0.002   0.002   0.002         4.887   4.684   6.120         5.015   4.962   6.544       9.904
-  lines x3   on         on     off         3.2         0.001   0.001   0.002         0.853   0.725   1.697         1.457   0.766   4.690       2.311
-  7 px       on         on     on          0.3         0.000   0.000   0.001         0.382   0.331   0.694         0.603   0.352   2.338       0.985
-  7 px       on         on     off         0.3         0.000   0.000   0.001         0.268   0.213   0.534         0.471   0.301   2.062       0.739
-  typing     on         on     on          1.0         0.001   0.001   0.002         0.148   0.138   0.240         1.172   1.000   2.336       1.321
-  typing     on         off    on          1.0         0.001   0.001   0.002         0.141   0.128   0.240         1.164   0.972   2.255       1.307
+  lines x3   on         on     on          3.2         0.001   0.001   0.003         0.755   0.645   1.026         0.802   0.465   2.644       1.558
+  lines x3   off        on     on         49.0         0.002   0.002   0.004         3.647   3.496   4.643         3.465   3.898   5.337       7.114
+  lines x3   on         off    on          3.2         0.000   0.000   0.001         0.579   0.538   0.855         0.762   0.477   2.427       1.341
+  lines x3   off        off    on         49.0         0.002   0.002   0.002         3.951   3.852   4.754         3.589   4.059   5.279       7.542
+  lines x3   on         on     off         3.2         0.000   0.000   0.001         0.532   0.502   0.800         0.747   0.461   2.434       1.280
+  7 px       on         on     on          0.3         0.000   0.000   0.001         0.304   0.262   0.494         0.463   0.301   1.959       0.767
+  7 px       on         on     off         0.3         0.000   0.000   0.001         0.249   0.203   0.455         0.423   0.271   1.864       0.673
+  typing     on         on     on          1.0         0.001   0.001   0.002         0.149   0.137   0.263         0.952   0.786   1.872       1.102
+  typing     on         off    on          1.0         0.001   0.001   0.002         0.147   0.136   0.256         0.960   0.795   1.871       1.108
 
 One run on one machine. Compare two runs only when both came from this benchmark at the same window size.

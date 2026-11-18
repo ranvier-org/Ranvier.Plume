@@ -2,6 +2,7 @@ namespace Ranvier.Plume.View
 
 open System
 open System.Collections.Generic
+open System.Globalization
 open Ranvier.View
 open Ranvier.Css
 open Ranvier.Css.View
@@ -89,18 +90,24 @@ type internal StyleRecorder() =
 
     member _.Definitions: StyleDefinition list = List.ofSeq recorded
 
-/// `styles { ... }` of Ranvier.Css.View, which also records the rules of the class it puts on the element.
-/// Ranvier.Css.View 0.1.1 computes those rules and keeps the class name only.
+/// `classOf { ... }`: the class of the utilities, as one part, with its rules recorded. The element's style
+/// attribute stays free for the values the view writes itself. `styles { ... }` of Ranvier.Css.View 0.1.1 keeps the
+/// class name only, and adds a tracked style attribute to every element.
 [<Sealed>]
-type internal RecordingStylesBuilder(recorder: StyleRecorder) =
+type internal RecordingClassBuilder(recorder: StyleRecorder) =
     inherit UtilityBuilderBase ()
 
-    member _.Run<'native, 'instance>(values: StaticUtilityFragment) : Part<'native, 'instance> array =
+    member _.Run<'native, 'instance>(values: StaticUtilityFragment) : Part<'native, 'instance> =
         let style: Styled<'instance> = UtilityBuilder().Run values |> Utility.toStyled
         recorder.Record style.Definition
-        CssView.parts style
+        TemplateParts.composableClass (TemplateParts.attribute "class" style.Definition.ClassName)
 
-    member _.Run<'native, 'instance>(values: ReactiveUtilityFragment<'instance>) : Part<'native, 'instance> array =
-        let style = UtilityBuilder().Run values |> Utility.toStyledReactive
-        recorder.Record style.Definition
-        CssView.parts style
+/// CSS lengths as text.
+module internal Px =
+
+    /// `value` in CSS pixels, to a thousandth of a pixel.
+    let text (value: float) : string =
+        if value = Math.Floor value && abs value < 1e9 then
+            String.Concat ((int value).ToString CultureInfo.InvariantCulture, "px")
+        else
+            String.Concat (value.ToString ("0.###", CultureInfo.InvariantCulture), "px")

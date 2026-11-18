@@ -27,6 +27,8 @@ type Mode =
     | Memory
     | Load
     | Apply
+    | Profile
+    | Writes
 
 type Options =
     { Mode: Mode
@@ -51,6 +53,8 @@ let usage =
   dotnet run -c Release -- --memory     measure the memory 10,000 history items hold on the 1,000,000-line file
   dotnet run -c Release -- --load       time building the text of the 1,000,000-line file from UTF-8 bytes
   dotnet run -c Release -- --apply      time one change set of 10,000 ranges against 10,000 single replacements
+  dotnet run -c Release -- --profile    time typing and scrolling with each feature of the text view switched off
+  dotnet run -c Release -- --writes     list the writes a keystroke and a scroll make to the page
 
 Options
   --size <w>x<h>   window size in CSS pixels (default 1280x800)
@@ -68,6 +72,8 @@ let parse (argv: string[]) : Result<Options, string> =
         | "--memory" :: tail -> go { options with Mode = Memory } tail
         | "--load" :: tail -> go { options with Mode = Load } tail
         | "--apply" :: tail -> go { options with Mode = Apply } tail
+        | "--profile" :: tail -> go { options with Mode = Profile } tail
+        | "--writes" :: tail -> go { options with Mode = Writes } tail
         | "--size" :: size :: tail ->
             match size.Split 'x' with
             | [| w; h |] ->
@@ -280,6 +286,176 @@ let private bench (options: Options) =
         say ""
         say "One run on one machine. Compare two runs only when both came from this benchmark at the same window size.")
 
+/// What each feature of the text view costs: typing and scrolling with one or more features switched off, in
+/// rounds that take every configuration in turn, in one window.
+let private profile (options: Options) =
+    say "Editor showcase on Ranvier.Plume --profile"
+
+    hosted options (fun window state view step ->
+        let graph = window.Graph
+        let editor = state.Files[state.Active.Peek].Editor
+        let lineHeight = view.Theme.LineHeight
+
+        let switch (name: string) (on: bool) =
+            for feature, slot, extension in features do
+                if feature = name then
+                    graph.Run(fun () -> editor.Dispatch [ Tx.effect (slot.Reconfigure(if on then extension else Extension.many [])) ])
+
+        let configurations =
+            [ "every feature", []
+              "no cursor", [ "cursor" ]
+              "no active line", [ "active" ]
+              "no selection", [ "selection" ]
+              "no layer", [ "cursor"; "active"; "selection" ]
+              "no line numbers", [ "numbers" ]
+              "no language", [ "language" ]
+              "text alone", [ "cursor"; "active"; "selection"; "numbers"; "language" ] ]
+
+        let workloads =
+            [ "typing", (fun () -> graph.Run(fun () -> Commands.insertText "x" editor |> ignore))
+              $"lines x{options.Lines}", (fun () -> graph.Run(fun () -> view.ScrollBy(float options.Lines * lineHeight))) ]
+
+        let rounds = 5
+        let totals = Dictionary<string, ResizeArray<struct (float * float * float)>>()
+        // PLUME_PROFILE names the one workload and configuration to run, as "typing|every feature": a CPU trace
+        // of the run then holds that workload alone.
+        let only = Environment.GetEnvironmentVariable "PLUME_PROFILE"
+        let chosen (key: string) = String.IsNullOrEmpty only || key = only
+        // Every typing run starts on a line no run has typed on.
+        let mutable typed = 0
+
+        for round in 0 .. rounds - 1 do
+            for workload, work in workloads do
+                let run = configurations |> List.filter (fun (configuration, _) -> chosen (workload + "|" + configuration))
+
+                // Each round starts with another configuration.
+                for offset in 0 .. run.Length - 1 do
+                    let configuration, off = run[(offset + round) % run.Length]
+
+                    for feature in off do
+                        switch feature false
+
+                    graph.Run(fun () ->
+                        view.ScrollTo(1000.0 * lineHeight)
+                        let start = (Text.line (1004 + typed % 28) editor.Text.Value).From
+                        editor.Dispatch [ Tx.selection (EditorSelection.single start start) ])
+
+                    if workload = "typing" then
+                        typed <- typed + 1
+
+                    let mutable dispatch = 0L
+                    let mutable app = 0L
+                    let mutable turn = 0L
+
+                    for frame in -30 .. options.Frames - 1 do
+                        let t0 = Stopwatch.GetTimestamp()
+                        work ()
+                        let t1 = Stopwatch.GetTimestamp()
+                        state.Frame(1.0 / 60.0)
+                        let t2 = Stopwatch.GetTimestamp()
+
+                        if not (window.Step(timeout = 0)) then
+                            raise (Failed "the window closed during the run")
+
+                        let t3 = Stopwatch.GetTimestamp()
+
+                        if frame >= 0 then
+                            dispatch <- dispatch + (t1 - t0)
+                            app <- app + (t2 - t1)
+                            turn <- turn + (t3 - t2)
+
+                    let key = workload + "|" + configuration
+
+                    if not (totals.ContainsKey key) then
+                        totals[key] <- ResizeArray()
+
+                    let frames = float options.Frames
+                    totals[key].Add(struct (milliseconds dispatch / frames, milliseconds app / frames, milliseconds turn / frames))
+
+                    for feature in off do
+                        switch feature true
+
+        say $"  {rounds} rounds of {options.Frames} timed frames after 30 untimed ones; a row is the mean of its rounds, and the lowest and highest total of a round"
+        say ""
+        say "  workload   features           dispatch ms   app ms   turn ms   total ms   total of a round"
+
+        for workload, _ in workloads do
+            for configuration, _ in configurations |> List.filter (fun (configuration, _) -> chosen (workload + "|" + configuration)) do
+                let runs = totals[workload + "|" + configuration]
+                let mean (pick: struct (float * float * float) -> float) = runs |> Seq.averageBy pick
+                let total (struct (d, a, t)) = d + a + t
+                let lowest = runs |> Seq.map total |> Seq.min
+                let highest = runs |> Seq.map total |> Seq.max
+                say $"  {workload, -9}  {configuration, -16}  {fixed3 (mean (fun (struct (d, _, _)) -> d)), 10}  {fixed3 (mean (fun (struct (_, a, _)) -> a)), 7}  {fixed3 (mean (fun (struct (_, _, t)) -> t)), 8}  {fixed3 (mean total), 9}   {fixed3 lowest} to {fixed3 highest}")
+
+/// The writes a keystroke and a scroll make to the page, read from a mutation observer on the document's body.
+let private writes (options: Options) =
+    say "Editor showcase on Ranvier.Plume --writes"
+
+    hosted options (fun window state view step ->
+        let graph = window.Graph
+        let doc = window.Host.Document
+        let editor = state.Files[state.Active.Peek].Editor
+        let lineHeight = view.Theme.LineHeight
+
+        graph.Run(fun () ->
+            view.ScrollTo(1000.0 * lineHeight)
+            let start = (Text.line 1010 editor.Text.Value).From
+            editor.Dispatch [ Tx.selection (EditorSelection.single start start) ])
+
+        for _ in 1..6 do
+            step ()
+
+        use service = Ranvier.View.WebCore.MutationObservation.forHost window.Host
+        let seen = ResizeArray<MutationRecord>()
+        use observer = service.Create(fun records _ -> seen.AddRange records)
+
+        observer.Observe(
+            doc.body,
+            { ChildList = true
+              Subtree = true
+              Attributes = Some true
+              CharacterData = Some true
+              AttributeOldValue = None
+              CharacterDataOldValue = None
+              AttributeFilter = None }
+        )
+
+        let describe (node: Node) : string =
+            match node with
+            | :? Element as element ->
+                let mark = element.getAttribute "data-pm"
+                let name = element.tagName.ToLowerInvariant()
+                if isNull mark then $"<{name}> with {element.childElementCount} child elements" else $"<{name} data-pm=\"{mark}\">"
+            | other -> $"text node under <{other.parentElement.tagName.ToLowerInvariant()}>"
+
+        let report (title: string) (count: int) (work: unit -> unit) =
+            observer.TakeRecords() |> ignore
+            seen.Clear()
+
+            for _ in 1..count do
+                work ()
+                step ()
+
+            seen.AddRange(observer.TakeRecords())
+            let records = seen.ToArray()
+            say $"  {title}: {records.Length} mutation records over {count} frames"
+
+            records
+            |> Array.countBy (fun record ->
+                let kind =
+                    match record.Type with
+                    | MutationType.ChildList -> "children"
+                    | MutationType.Attributes -> "attribute " + (defaultArg record.AttributeName "?")
+                    | MutationType.CharacterData -> "text"
+
+                kind + " of " + describe record.Target)
+            |> Array.sortByDescending snd
+            |> Array.iter (fun (what, times) -> say $"    {float times / float count, 6:F2} a frame   {what}")
+
+        report "typing" 20 (fun () -> graph.Run(fun () -> Commands.insertText "x" editor |> ignore))
+        report $"lines x{options.Lines}" 20 (fun () -> graph.Run(fun () -> view.ScrollBy(float options.Lines * lineHeight))))
+
 /// The lines of the 1,000,000-line file.
 let private largeFile () : ResizeArray<string> = (Session()).Files[0].Lines
 
@@ -419,6 +595,8 @@ let run (options: Options) : int =
         | Memory -> memory ()
         | Load -> load ()
         | Apply -> apply ()
+        | Profile -> profile options
+        | Writes -> writes options
         | Interactive -> invalidOp "the window is opened by Program"
     with
     | Failed reason ->

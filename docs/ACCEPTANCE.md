@@ -11,52 +11,96 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 
 | Criterion | Result |
 |---|---|
-| 7.1 Frame cost, by the total time of a frame (your ruling of 2026-11-19) | Lower than the baseline in 6 of 9 rows, by 4% to 23%. Higher in 3: line scroll with the markup cache off (5%), typing (15%), typing with the cache off (20%) |
+| 7.1 Frame cost, by the total time of a frame (your ruling of 2026-11-19) | **Passes**: at or below the baseline in all nine rows. Scrolling is 11% to 53% lower. Typing is level: 1.05 against 1.09 ms, and 1.12 against 1.13 ms with the markup cache off |
 | 7.2 History memory | **Passes**: 279 bytes an insertion after `MarkSaved`, bound 512 |
 | 7.3 Loading | **Passes**: the vectorised scan is 1.85 times faster and is kept |
 
 ## 7.1 Frame cost
 
 `EditorShowcase --bench` (the baseline, with the Dispatch stopwatch added) and
-`Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code as it is
-after the review fixes below. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line file.
-Values are means of a run in milliseconds; a cell gives the lowest and highest of the five runs. The raw logs
-are in `bench/`.
+`Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code as
+committed. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line file. Values are means of a
+run in milliseconds; a cell gives the lowest and highest of the five runs. The last column compares the means of
+the five runs, and counts the pairs in which Plume's run was below the baseline's run made just before it. The
+raw logs are in `bench/`.
 
-| Workload | Recycling | Cache | Layer | App, baseline | App, Plume | Turn, baseline | Turn, Plume | Dispatch, Plume | Total, baseline | Total, Plume | Total, means |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| lines x3 | on | on | on | 0.75 to 0.81 | 0.50 to 0.53 | 0.82 to 0.91 | 0.91 to 0.99 | 0.01 to 0.01 | 1.58 to 1.72 | 1.42 to 1.53 | 1.47 against 1.62 |
-| lines x3 | off | on | on | 3.69 to 4.28 | 1.72 to 2.12 | 3.50 to 4.37 | 3.80 to 4.37 | 0.01 to 0.02 | 7.19 to 8.65 | 5.53 to 6.51 | 5.90 against 7.64 |
-| lines x3 | on | off | on | 0.59 to 0.66 | 0.41 to 0.51 | 0.80 to 0.93 | 0.96 to 1.22 | 0.00 to 0.01 | 1.39 to 1.59 | 1.38 to 1.73 | 1.56 against 1.48 |
-| lines x3 | off | off | on | 4.40 to 4.89 | 1.88 to 2.45 | 4.18 to 5.01 | 4.67 to 6.69 | 0.01 to 0.01 | 8.58 to 9.90 | 6.63 to 9.15 | 7.49 against 9.32 |
-| lines x3 | on | on | off | 0.57 to 0.85 | 0.35 to 0.44 | 0.79 to 1.46 | 1.00 to 1.31 | 0.00 to 0.01 | 1.36 to 2.31 | 1.35 to 1.76 | 1.50 against 1.63 |
-| 7 px | on | on | on | 0.33 to 0.38 | 0.26 to 0.35 | 0.50 to 0.60 | 0.43 to 0.61 | 0.00 to 0.00 | 0.83 to 0.98 | 0.69 to 0.96 | 0.84 against 0.88 |
-| 7 px | on | on | off | 0.26 to 0.31 | 0.22 to 0.28 | 0.47 to 0.55 | 0.42 to 0.58 | 0.00 to 0.00 | 0.72 to 0.86 | 0.64 to 0.86 | 0.74 against 0.77 |
-| typing | on | on | on | 0.13 to 0.15 | 0.00 to 0.00 | 1.02 to 1.17 | 1.11 to 1.32 | 0.20 to 0.27 | 1.16 to 1.32 | 1.31 to 1.59 | 1.44 against 1.25 |
-| typing | on | off | on | 0.14 to 0.15 | 0.00 to 0.00 | 1.11 to 1.18 | 1.15 to 1.36 | 0.26 to 0.27 | 1.25 to 1.33 | 1.41 to 1.62 | 1.55 against 1.29 |
+| Workload | Recycling | Cache | Layer | App, baseline | App, Plume | Turn, baseline | Turn, Plume | Dispatch, Plume | Total, baseline | Total, Plume | Total, means | Plume against baseline |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| lines x3 | on | on | on | 0.69 to 0.81 | 0.35 to 0.39 | 0.77 to 0.90 | 0.85 to 0.93 | 0.01 to 0.01 | 1.51 to 1.71 | 1.21 to 1.33 | 1.25 against 1.59 | -21%, lower in 5 of 5 pairs |
+| lines x3 | off | on | on | 3.50 to 3.98 | 1.36 to 1.44 | 3.16 to 3.73 | 3.46 to 3.60 | 0.01 to 0.01 | 6.67 to 7.71 | 4.84 to 5.04 | 4.93 against 7.06 | -30%, lower in 5 of 5 pairs |
+| lines x3 | on | off | on | 0.54 to 0.60 | 0.32 to 0.34 | 0.72 to 0.80 | 0.76 to 0.90 | 0.00 to 0.01 | 1.26 to 1.40 | 1.08 to 1.25 | 1.17 against 1.32 | -11%, lower in 5 of 5 pairs |
+| lines x3 | off | off | on | 3.84 to 4.16 | 1.21 to 1.28 | 3.37 to 4.01 | 3.35 to 3.45 | 0.01 to 0.01 | 7.21 to 8.17 | 4.56 to 4.74 | 4.63 against 7.55 | -39%, lower in 5 of 5 pairs |
+| lines x3 | on | on | off | 0.52 to 0.60 | 0.24 to 0.27 | 0.71 to 0.86 | 0.77 to 0.86 | 0.00 to 0.00 | 1.23 to 1.46 | 1.02 to 1.13 | 1.07 against 1.32 | -19%, lower in 5 of 5 pairs |
+| 7 px | on | on | on | 0.29 to 0.32 | 0.14 to 0.14 | 0.42 to 0.47 | 0.25 to 0.26 | 0.00 to 0.00 | 0.70 to 0.78 | 0.38 to 0.40 | 0.39 against 0.75 | -48%, lower in 5 of 5 pairs |
+| 7 px | on | on | off | 0.22 to 0.26 | 0.09 to 0.09 | 0.40 to 0.45 | 0.22 to 0.23 | 0.00 to 0.00 | 0.62 to 0.71 | 0.30 to 0.33 | 0.31 against 0.67 | -53%, lower in 5 of 5 pairs |
+| typing | on | on | on | 0.12 to 0.15 | 0.00 to 0.00 | 0.93 to 1.00 | 0.85 to 0.94 | 0.16 to 0.17 | 1.06 to 1.14 | 1.02 to 1.10 | 1.05 against 1.09 | -4%, lower in 5 of 5 pairs |
+| typing | on | off | on | 0.12 to 0.15 | 0.00 to 0.00 | 0.96 to 1.06 | 0.91 to 0.99 | 0.15 to 0.17 | 1.11 to 1.20 | 1.07 to 1.15 | 1.12 against 1.13 | -1%, lower in 3 of 5 pairs |
 
 The baseline's Dispatch is 0.000 to 0.002 ms in every row: its workload call changes plain fields.
 
-**By the total time of a frame**, the measure you ruled on:
+**By the total time of a frame**, the measure you ruled on, every row is at or below the baseline:
 
-- **Scrolling is at or below the baseline** in six of seven rows: 4% to 9% lower with rows recycled, 20% to 23%
-  lower when every row is written. The row with the markup cache off is 5% higher (1.56 against 1.48 ms), inside
-  the spread of the runs.
-- **Typing is above the baseline**: 1.44 against 1.25 ms (15%), and 1.55 against 1.29 ms with the cache off
-  (20%). The first is under the 1.5 ms budget of section 7.1 at its mean, with two runs of five over it; the
-  second is 0.05 ms over.
+- **Scrolling** is 11% to 21% lower with rows recycled, 30% to 39% lower when every row is written, and about
+  half for the 7 px scroll (0.39 against 0.75 ms).
+- **Typing** is level with the baseline: 1.05 against 1.09 ms, lower in each of the five pairs, and 1.12 against
+  1.13 ms with the markup cache off, lower in three pairs of five. Every run is under the 1.5 ms budget of
+  section 7.1.
 
-What the excess of a keystroke pays for: the baseline's edit replaces a string in a list; the library's builds a
-transaction, appends it to the log, folds it into the text, the editor state and the history, and moves the
-cursor, active-line and selection layers. Its dispatch takes 0.20 to 0.27 ms, of which about 0.01 ms is the state
-layer (see below); the turn after it is 0.1 to 0.2 ms longer than the baseline's. A row is one markup slot, so a
-keystroke also writes the line's gutter marker again; that is the price of the row shape that made scrolling
-fast.
+By the rule of section 7.1 (a row passes when its mean falls inside the range of the baseline's runs, or below),
+all nine rows pass.
 
-**An earlier session disagreed on one row.** Three runs each before the review fixes had typing with the cache
-on at 1.18 against 1.32 ms, lower than the baseline. Rows computed a frame were the same in both sessions (1.0),
-so the DOM work was the same; the library's typing time varies more between sessions than the baseline's. The
-table above is the record.
+### The record before this one
+
+The record this one replaces (commit `dd00fc9`, five pairs) had typing above the baseline: 1.44 against 1.25 ms,
+and 1.55 against 1.29 ms with the cache off. Plan task 11, step 3 covers a row that fails: profile, and fix inside
+the core-lookup design. The next section is that profile and the changes it led to. The lookup design is as it
+was, and no core primitive had to change.
+
+Sessions differ: the baseline's own typing row read 1.25 ms in that record and reads 1.09 ms in this one. A figure
+of one record compares with the baseline of the same record only.
+
+### What a keystroke costs, and what was changed
+
+1. **A keystroke makes three writes to the page** (`--writes`: a mutation observer on the document's body, 20
+   frames): the children of the line's slot, the style of the cursor's element, and the text of the sample's
+   status line. A 3-line scroll makes about ten: the style, the gutter slot and the line slot of each row that
+   takes another line, and the style of the scrollbar's thumb.
+2. **An edit wrote the line's gutter marker again.** A row was one markup slot holding the markers and the line.
+   A row now has a slot for each, so an edit writes the line and leaves the markers' elements in place. Rows of
+   each shape written straight to the page, with the turn after the write (a temporary mode of the sample, since
+   removed; 5 rounds of 240 frames, three runs): one slot 0.43, 0.43 and 0.49 ms a frame, a slot for each 0.38,
+   0.40 and 0.42 ms. With three rows written a frame the shapes were within 0.03 ms: 0.55, 0.55 and 0.56 ms
+   against 0.57, 0.58 and 0.56 ms.
+3. **Reader values were lowered again on every render.** The view had the place of a row, the rectangle of a
+   layer and the scrollbar's thumb as `Ranvier.Css` reader values. A template instance renders every binding when
+   one value changes, and each reader value is turned from a typed value into text again: a CPU trace of typing
+   (`dotnet-trace`, 2,150 keystrokes) had 17% of its managed samples in Ranvier.Css, in `NumberText.format`,
+   `GrammarRuntime.lookup` and `Declaration.isCssWideWith` under `Style.variableDeclarations`. The view now
+   writes what changes on an element as one text in its style attribute, and a class holds what is fixed. The
+   engine has less to do as well: the Turn of the 7 px scroll is 0.25 to 0.26 ms against the baseline's 0.42 to
+   0.47 ms, where the earlier record had 0.43 to 0.61 ms against 0.50 to 0.60 ms.
+4. **A facet without inputs took a lock on every read, and the row configuration was built on every
+   transaction** before it was compared with the one before. A facet now keeps its own default, and the
+   configuration is compared first.
+5. **Markup of text alone was slow to scroll.** The engine writes markup that is text alone into the text node
+   already in the element, and rows scrolled that way cost it more than rows given new nodes. With rows of two
+   slots, `--profile` had scrolling without a language at 1.15 times the total of scrolling with one (1.68
+   against 1.46 ms). The markup of a line without spans now ends with an empty comment, and the same comparison
+   reads 0.81 times (0.90 against 1.12 ms). Each ratio is within one run.
+
+`--profile` types and scrolls as `--bench` does, in rounds in one window, with the view's features switched off
+one at a time. With every feature on, typing's Dispatch was 0.17 and 0.22 ms before these changes (two runs) and
+is 0.13 ms on the code as committed (one run; 0.14, 0.14 and 0.12 ms in three runs while the changes were being
+made). The App time of the 3-line scroll was 0.42 and 0.44 ms and is 0.32 ms (0.35, 0.36 and 0.34 ms). On the
+code as committed the three layers together add 0.03 ms to a keystroke's Dispatch (0.130 against 0.097 ms).
+
+**Where the rest of a typing frame goes.** The turn after a keystroke is about 0.9 ms in both apps. About half
+of it is the repaint of what lies between the edited row and the status line: in the temporary mode, a new status
+text alone cost 0.002 ms a frame, the row with the cursor 0.53 ms, and the three together 0.95 ms (one run). Both
+samples write the status line on every keystroke, so both pay it.
+
+**The state layer** takes about 9 microseconds of a keystroke (2,000 calls of `Commands.insertText` on the
+1,000,000-line document with no view).
 
 **The stopwatches hold different work in the two apps**, which is why total time is the measure. The baseline
 writes its rows and then writes `scrollTop`, which makes the engine lay the page out inside App (its harness says
@@ -68,35 +112,30 @@ to App 3.01 and 3.38 with Turn 3.01 and 3.25. That harness change was reverted.
 ### What the row lookup costs
 
 Dossier decision 5 replaced the hand-written sync loop by a core `createLookup`. App time, which holds the
-lookup, its `affected` function and the row effects, is below the baseline in every scroll row: 0.50 to 0.53 ms
-against 0.75 to 0.81 ms with all settings on, and 1.72 to 2.12 ms against 3.69 to 4.28 ms when every row is
+lookup, its `affected` function and the row effects, is below the baseline in every scroll row: 0.35 to 0.39 ms
+against 0.69 to 0.81 ms with all settings on, and 1.36 to 1.44 ms against 3.50 to 3.98 ms when every row is
 written. No core primitive had to change.
 
 Rows computed a frame match the baseline: 3.2 for a 3-line scroll, 49.0 with recycling off, 0.3 for a 7 px
 scroll, 1.0 for typing. The view tests assert the exact counts: 3 rows for a 3-line scroll, 1 row for a typed
 character, the rows from the edited line to the pool's end for a new line.
 
-### Two findings on the way
+### A text binding in a row
 
-1. **A separate element for the gutter marker cost the engine about 1 ms a frame while scrolling.** With the line
-   number in its own cell beside the text, the 3-line scroll took 2.2 to 2.6 ms in total; with a constant number
-   in that cell, 1.5 ms; with the number and the text in one markup slot, 1.7 ms (single runs, before the
-   review fixes). A row is therefore one markup slot. I did not find why the baseline, which has such a cell,
-   does not pay this.
-2. **A typed character costs about 9 microseconds in the state layer** (2,000 calls of `Commands.insertText` on
-   the 1,000,000-line document with no view). Each of the cursor, active-line and selection layers adds 0.03 to
-   0.07 ms to a keystroke (single runs).
+With the line number in a cell of its own beside the text, written as text, the 3-line scroll took 2.2 to 2.6 ms
+in total; with a constant number in that cell, 1.5 ms (single runs, before the review fixes). The gutter markers
+are therefore markup. I did not find why the baseline, which writes its line number as text, does not pay this.
 
 ## 7.2 History memory
 
 `samples/EditorShowcase --memory`: 10,000 single-character insertions at lines `(i * 7919) mod 1,000,000`, each
 its own history item, with an undo depth of 20,000. `GC.GetTotalMemory(true)` after a full collection. Measured
-again after the review fixes.
+on the code as committed.
 
 | Measured | Growth | An insertion |
 |---|---|---|
-| After the insertions, the text at the start still the saved text | 48,493,592 bytes | 4,849 bytes |
-| After `Document.MarkSaved` | 2,788,848 bytes | **279 bytes** |
+| After the insertions, the text at the start still the saved text | 48,496,664 bytes | 4,850 bytes |
+| After `Document.MarkSaved` | 2,791,920 bytes | **279 bytes** |
 
 The bound is 512 bytes, the size of one leaf's line-offset array. The second row passes it: history holds no
 leaf. The dossier's estimate for the snapshot design was about 6 KB a step (not measured).
@@ -108,7 +147,7 @@ meant; I measured both.
 
 Two defects were found by this measurement and fixed, with a regression test (`Retention`): the `Document` kept
 its start-up configuration, and the `Editor` kept its initial state. Each held the text the document started with
-for the object's whole life. Before the fixes both rows read 4,849 bytes.
+for the object's whole life. Before the fixes both rows read about 4,850 bytes.
 
 **Undo depth (decision 17).** `History.defaults.Depth` is 10,000 items: at 279 bytes an item for a
 single-character edit, about 2.8 MB. An item that deletes text holds the removed text as a slice sharing the
@@ -176,8 +215,9 @@ reviewer's.
 
 - **Styles hand-off: no change to Ranvier.Css.** `EditorView.create` returns the component, the
   `StyleDefinition` list of the classes it applies, and the rules of its theme. The sample adds them to its
-  `LiveSheet`. Its harness checks that every Ranvier.Css class on the page has a rule in the adopted sheet: 34
-  classes, 9 of them handed over by the view.
+  `LiveSheet`. Its harness checks that every Ranvier.Css class on the page has a rule in the adopted sheet: 32
+  classes, 9 of them handed over by the view. The view's classes hold what is fixed; what changes on an element
+  is in its style attribute (7.1, point 3).
 - **Frame pacing: no change to the Ranvier core.** Scroll requests write a target; an effect asks for one frame
   through `Ranvier.View.Dom.Frames.frame`; the frame copies the target to the value the rows read. A test with a
   manual scheduler shows one frame callback for two requests, and none at rest.
@@ -191,12 +231,24 @@ reviewer's.
   `//FOR-REVIEW`). A fix in Ranvier.View would remove the wrapper.
 - **A hidden window delivers no animation frames.** The frame-pacing path is therefore tested with a manual
   scheduler, and has not run under a display.
+- **A `Ranvier.Css` reader value is lowered again on every render of its element's instance** (7.1, point 3;
+  Ranvier.Css 0.1.1). `CssView.partsWithInline` (`Ranvier.Css/src/Ranvier.Css.View/Bindings.fs`) calls
+  `Style.variableDeclarations` on each read of the style attribute. I did not read `Style` itself, so what it
+  keeps between reads is known from the trace only. The baseline uses reader values throughout. A cache of the
+  lowered text in Ranvier.Css would let the view use them again; the place is marked `//FOR-REVIEW` in
+  `Component.fs`.
+- **The host constructs no pointer or wheel event.** `Ranvier.Dom.EventConstruction` has `Event`, `Custom`, `UI`,
+  `Mouse`, `Keyboard` and `Focus` (**from source**, `Ranvier/src/Ranvier.Dom/EventConstruction.fs`). The view's
+  pointer and wheel logic is tested through the functions its listeners call, with the values an event carries.
+- **The engine writes markup of text alone into the text node already there**, and rows scrolled that way cost
+  more (7.1, point 5). The view ends such markup with an empty comment.
 
 ## Not verified
 
-- **No window was shown.** The interactive sample, pointer selection, the scroll tour, the caret blink and frame
-  delivery by a display were not run. Keyboard input, scrolling, selection and layers were exercised through
-  synthetic events and scripted frames in hidden windows.
+- **No window was shown.** The interactive sample, the scroll tour, the caret blink and frame delivery by a
+  display were not run. Keyboard input ran through synthetic events in hidden windows. Pointer selection, the
+  wheel and the scrollbar ran through the functions their listeners call; the listeners themselves have not run,
+  because the host constructs no pointer or wheel event.
 - The hot reload path of the sample (`dotnet run -- dev`) is carried over from the baseline and was not run.
 - Both libraries build for `net10.0` and `net8.0`. The tests ran on `net10.0` only.
 - The traced build (`-p:RanvierTrace=true`) is wired and was not built.
@@ -206,4 +258,4 @@ reviewer's.
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 111 tests and the view has 19.
+The state package has 112 tests and the view has 23. `rfs check --fail-on-error` reports 0 errors in 5 projects.

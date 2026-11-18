@@ -10,7 +10,6 @@ open Ranvier.View
 open Ranvier.View.Dom
 open Ranvier.View.Dsl
 open Ranvier.Css
-open Ranvier.Css.View
 open Ranvier.Keyboard
 open Ranvier.Plume
 
@@ -87,10 +86,13 @@ module internal Surface =
     let private mounted = ConditionalWeakTable<Editor, Surface> ()
     let mutable private lastLayer = 0
 
-    let current (editor: Editor) : EditorView voption =
+    let find (editor: Editor) : Surface voption =
         match mounted.TryGetValue editor with
-        | true, surface -> ValueSome surface.View
+        | true, surface -> ValueSome surface
         | _ -> ValueNone
+
+    let current (editor: Editor) : EditorView voption =
+        find editor |> ValueOption.map (fun surface -> surface.View)
 
     /// `scheduler` with every callback run on `graph`.
     //FOR-REVIEW Ranvier.View.Dom.Frames.frame and .timeout call Api.runWithOwner in the host's callback, and
@@ -140,11 +142,10 @@ module internal Surface =
             Api.createMemo (fun (previous: RowConfig voption) ->
                 let specs = gutters.Value
                 let state = editor.State.Value
-                let next = RowConfig (specs, specs |> Array.map (fun gutter -> gutter.Key state), language.Value, recycle.Value, cache.Value)
 
                 match previous with
-                | ValueSome before when before.Same next -> before
-                | _ -> next)
+                | ValueSome before when before.Holds (specs, state, language.Value, recycle.Value, cache.Value) -> before
+                | _ -> RowConfig (specs, specs |> Array.map (fun gutter -> gutter.Key state), language.Value, recycle.Value, cache.Value))
 
         let window =
             Api.createMemo (fun (previous: RowWindow voption) ->
@@ -258,8 +259,7 @@ module internal Surface =
             if scrollTarget.Value <> scroll.Value then
                 Frames.frame scheduler (fun _ -> commit ()) |> ignore)
 
-        // The scroll offset goes straight to the element. Through a Ranvier.Css reader on the sheet it would be an
-        // inherited variable, and a change to it restyles every row under the sheet.
+        // Scrolling moves the viewport over the sheet: the sheet and its rows keep their places and their styles.
         let applied = ref Int32.MinValue
 
         Api.createEffect (fun () ->
@@ -454,14 +454,9 @@ module internal Surface =
             | _ -> ())
         surface
 
-module internal Handlers =
-
-    let private position (surface: Surface) (pe: PointerEvent) : int voption =
-        match box pe.currentTarget with
-        | :? HTMLElement as element ->
-            let rect = element.getBoundingClientRect ()
-            ValueSome (surface.View.PosAtCoords (float pe.clientX - rect.left) (float pe.clientY - rect.top))
-        | _ -> ValueNone
+/// What the pointer and the wheel do, by the values their events carry. A point is in CSS pixels from the left and
+/// the top of the viewport.
+module internal PointerInput =
 
     let private select (surface: Surface) (anchor: int voption) (head: int) =
         let editor = surface.View.Editor
@@ -471,42 +466,61 @@ module internal Handlers =
         if anchor <> main.Anchor || head <> main.Head then
             editor.Dispatch [ Tx.selection (EditorSelection.single anchor head); Tx.userEvent "select.pointer" ]
 
+    /// A press at a point puts the cursor there, or with `extend` moves the head of the main range there. The moves
+    /// that follow extend the selection until the release.
+    let press (surface: Surface) (x: float) (y: float) (extend: bool) =
+        let head = surface.View.PosAtCoords x y
+        select surface (if extend then ValueNone else ValueSome head) head
+        surface.Selecting <- true
+
+    let move (surface: Surface) (x: float) (y: float) =
+        if surface.Selecting then
+            select surface ValueNone (surface.View.PosAtCoords x y)
+
+    let release (surface: Surface) = surface.Selecting <- false
+
+    let wheel (surface: Surface) (deltaY: float) = surface.View.ScrollBy deltaY
+
+    /// Scrolls so that the scrollbar's thumb is centred `y` CSS pixels down a track `height` high.
+    let thumbTo (surface: Surface) (y: float) (height: float) =
+        let thumb = Api.untrack (fun () -> surface.ThumbHeight.Value)
+        let room = height - thumb
+
+        if room > 0.0 then
+            surface.ScrollToFraction ((y - thumb / 2.0) / room)
+
+module internal Handlers =
+
     let wheel (surface: Surface) (ev: WheelEvent) =
         ev.preventDefault ()
-        surface.View.ScrollBy (float ev.deltaY)
+        PointerInput.wheel surface (float ev.deltaY)
 
     let pointerDown (surface: Surface) (pe: PointerEvent) =
-        match position surface pe with
-        | ValueSome head ->
+        match box pe.currentTarget with
+        | :? HTMLElement as element ->
+            let rect = element.getBoundingClientRect ()
             pe.preventDefault ()
             surface.View.Focus ()
-            select surface (if pe.shiftKey then ValueNone else ValueSome head) head
-
-            match box pe.currentTarget with
-            | :? HTMLElement as element ->
-                element.setPointerCapture pe.pointerId
-                surface.Selecting <- true
-            | _ -> ()
-        | ValueNone -> ()
+            PointerInput.press surface (float pe.clientX - rect.left) (float pe.clientY - rect.top) pe.shiftKey
+            element.setPointerCapture pe.pointerId
+        | _ -> ()
 
     let pointerMove (surface: Surface) (pe: PointerEvent) =
         if surface.Selecting then
-            match position surface pe with
-            | ValueSome head -> select surface ValueNone head
-            | ValueNone -> ()
+            match box pe.currentTarget with
+            | :? HTMLElement as element ->
+                let rect = element.getBoundingClientRect ()
+                PointerInput.move surface (float pe.clientX - rect.left) (float pe.clientY - rect.top)
+            | _ -> ()
 
-    let pointerEnd (surface: Surface) (_: PointerEvent) = surface.Selecting <- false
+    let pointerEnd (surface: Surface) (_: PointerEvent) = PointerInput.release surface
 
     /// Scrolls to where the pointer is on the scrollbar track, with the thumb centred on it.
     let private dragTo (surface: Surface) (pe: PointerEvent) =
         match box pe.currentTarget with
         | :? HTMLElement as track ->
             let rect = track.getBoundingClientRect ()
-            let thumb = Api.untrack (fun () -> surface.ThumbHeight.Value)
-            let room = rect.height - thumb
-
-            if room > 0.0 then
-                surface.ScrollToFraction ((float pe.clientY - rect.top - thumb / 2.0) / room)
+            PointerInput.thumbTo surface (float pe.clientY - rect.top) rect.height
         | _ -> ()
 
     let trackDown (surface: Surface) (pe: PointerEvent) =
@@ -578,7 +592,7 @@ module EditorView =
     let create (config: ViewConfig) : EditorViewDefinition =
         let theme = Theme.define config.Theme
         let recorder = StyleRecorder ()
-        let styles = RecordingStylesBuilder recorder
+        let classOf = RecordingClassBuilder recorder
         // The theme's rules select inside this view's elements by an attribute of the viewport.
         let scope = String.Concat ("v", string (Interlocked.Increment &lastScope))
 
@@ -633,9 +647,21 @@ module EditorView =
                 Css.borderRightWidth (Css.px 1.)
                 Css.borderRightStyle CssValue.Border.Style.solid
                 Declaration.create "border-right-color" theme.Edge
-                Css.width (fun (surface: Surface) -> Css.px (max 0.0 (surface.View.GutterWidth.Value - 12.)))
-                whenActive (fun (surface: Surface) -> surface.View.GutterWidth.Value <= 0.0) { Css.display CssValue.Display.none }
             }
+
+        // A class holds what is fixed on an element; what changes is one text in its style attribute.
+        //FOR-REVIEW The view had these as Ranvier.Css reader values (Css.top (fun slot -> ...), whenActive). An
+        //FOR-REVIEW instance renders every binding when one value changes, and each reader value is lowered again on
+        //FOR-REVIEW each render: a CPU trace of typing had NumberText.format, GrammarRuntime.lookup and
+        //FOR-REVIEW Declaration.isCssWideWith under Style.variableDeclarations (Ranvier.Css 0.1.1). A cache of the
+        //FOR-REVIEW lowered value by reader result in Ranvier.Css would let reader values back in here.
+        let gutterStripStyle (surface: Surface) : string =
+            let width = surface.View.GutterWidth.Value
+
+            if width <= 0.0 then
+                "display:none"
+            else
+                String.Concat ("width:", Px.text (max 0.0 (width - 12.0)))
 
         // The sheet the rows lie on. The viewport scrolls over it by its own scroll offset; a row keeps its place
         // on the sheet for as long as it shows the same line.
@@ -646,8 +672,10 @@ module EditorView =
                 Css.right (Css.px 0.)
                 Css.top (Css.px 0.)
                 Css.height (Css.px Rows.SheetHeight)
-                whenActive (fun (surface: Surface) -> surface.Promoted.Value) { Declaration.create "will-change" "transform" }
             }
+
+        let sheetStyle (surface: Surface) : string option =
+            if surface.Promoted.Value then Some "will-change:transform" else None
 
         // One line of text: a box of fixed size that contains its own layout and paint.
         let row =
@@ -658,10 +686,18 @@ module EditorView =
                 Css.height (Css.px theme.LineHeight)
                 Css.overflow CssValue.Overflow.hidden
                 Css.contain CssValue.Contain.strict
-                Css.top (fun (slot: RowSlot) -> Css.px (slot.Surface.Rows.Get slot.Slot).Top)
-                // The gutter markers of the main cursor's line take the text colour through a variable of the row.
-                whenActive (fun (slot: RowSlot) -> slot.Surface.IsActive.Get (slot.Surface.Rows.Get slot.Slot).Line) { Declaration.create "--pm-gutter-ink" theme.Ink }
             }
+
+        let activeInk = String.Concat (";--pm-gutter-ink:", theme.Ink)
+
+        // The gutter markers of the main cursor's line take the text colour through a variable of the row.
+        let rowStyle (slot: RowSlot) : string =
+            let content = slot.Surface.Rows.Get slot.Slot
+
+            if content.Line >= 0 && slot.Surface.IsActive.Get content.Line then
+                String.Concat ("top:", Px.text content.Top, activeInk)
+            else
+                String.Concat ("top:", Px.text content.Top)
 
         let markerOf (slot: MarkerSlot) : LayerMarker voption =
             let markers = slot.Markers.Value
@@ -671,22 +707,19 @@ module EditorView =
             else
                 ValueNone
 
-        let rectOf (slot: MarkerSlot) : Rect =
-            match markerOf slot with
-            | ValueSome marker -> marker.Rect
-            | ValueNone -> Unchecked.defaultof<Rect>
-
         // A rectangle of a layer.
         let marker =
             utility {
                 Css.position CssValue.Position.absolute
                 Css.pointerEvents CssValue.PointerEvents.none
-                Css.left (fun (slot: MarkerSlot) -> Css.px (rectOf slot).Left)
-                Css.top (fun (slot: MarkerSlot) -> Css.px (rectOf slot).Top)
-                Css.width (fun (slot: MarkerSlot) -> Css.px (rectOf slot).Width)
-                Css.height (fun (slot: MarkerSlot) -> Css.px (rectOf slot).Height)
-                whenActive (fun (slot: MarkerSlot) -> (markerOf slot).IsNone) { Css.display CssValue.Display.none }
             }
+
+        let markerStyle (slot: MarkerSlot) : string =
+            match markerOf slot with
+            | ValueSome marker ->
+                let rect = marker.Rect
+                String.Concat ("left:", Px.text rect.Left, ";top:", Px.text rect.Top, ";width:", Px.text rect.Width, ";height:", Px.text rect.Height)
+            | ValueNone -> "display:none"
 
         // A hidden run of 64 characters, measured to find the advance of one.
         let probe =
@@ -719,25 +752,24 @@ module EditorView =
                 Css.borderRadius (Css.px 4.)
                 Declaration.create "background-color" theme.Thumb
                 Css.pointerEvents CssValue.PointerEvents.none
-                Css.top (fun (surface: Surface) -> Css.px surface.ThumbTop.Value)
-                Css.height (fun (surface: Surface) -> Css.px surface.ThumbHeight.Value)
             }
 
-        // A row of the pool: one markup slot holding the gutter markers and the line. A row is an instance with its
-        // own render effect, so a change to its content re-reads the bindings of this row alone. One slot costs the
-        // engine less than a cell for the markers beside a slot for the text.
+        let thumbStyle (surface: Surface) : string =
+            String.Concat ("top:", Px.text surface.ThumbTop.Value, ";height:", Px.text surface.ThumbHeight.Value)
+
+        // A row of the pool: a markup slot for the gutter markers and one for the line. A row is an instance with its
+        // own render effect, so a change to its content re-reads the bindings of this row alone, and an edit to the
+        // line writes the line's slot and leaves the markers' elements in place.
         let rowView: TemplateView<RowSlot> =
-            div (
-                div.batch (styles { row }),
-                div.attribute ("data-pm", "row"),
-                div.unsafeHtml (fun (slot: RowSlot) -> (slot.Surface.Rows.Get slot.Slot).Markup)
-            ) {
-                ()
+            div (classOf { row }, div.attribute ("data-pm", "row"), div.style rowStyle) {
+                span (span.unsafeHtml (fun (slot: RowSlot) -> (slot.Surface.Rows.Get slot.Slot).Gutter)) { () }
+                span (span.unsafeHtml (fun (slot: RowSlot) -> (slot.Surface.Rows.Get slot.Slot).Markup)) { () }
             }
 
         let markerView: TemplateView<MarkerSlot> =
             div (
-                div.batch (styles { marker }),
+                classOf { marker },
+                div.style markerStyle,
                 div.attribute (
                     "data-pm",
                     fun (slot: MarkerSlot) ->
@@ -754,7 +786,7 @@ module EditorView =
 
         let template: TemplateView<Surface> =
             div (
-                div.batch (styles { root }),
+                classOf { root },
                 div.attribute ("tabindex", "0"),
                 div.mounted (fun (surface: Surface) (element: HTMLDivElement) ->
                     surface.Root <- element
@@ -764,7 +796,7 @@ module EditorView =
                 div.onBlur (fun (surface: Surface) (_: FocusEvent) -> surface.Focused.Value <- false)
             ) {
                 div (
-                    div.batch (styles { viewport }),
+                    classOf { viewport },
                     div.attribute ("data-plume", scope),
                     div.mounted (fun (surface: Surface) (element: HTMLDivElement) ->
                         surface.Viewport <- element
@@ -780,16 +812,16 @@ module EditorView =
                     div.onPointerup Handlers.pointerEnd,
                     div.onPointercancel Handlers.pointerEnd
                 ) {
-                    div (styles { gutterStrip }) { () }
+                    div (classOf { gutterStrip }, div.style gutterStripStyle) { () }
 
-                    div (styles { sheet }) {
+                    div (classOf { sheet }, div.style sheetStyle) {
                         forEachFixed (fun (layer: LayerInstance) -> layer.Id) (fun (surface: Surface) -> surface.Below.Value) layerView
                         forEachFixed (fun (slot: RowSlot) -> slot.Slot) (fun (surface: Surface) -> surface.RowSlots.Value) rowView
                         forEachFixed (fun (layer: LayerInstance) -> layer.Id) (fun (surface: Surface) -> surface.Above.Value) layerView
                     }
 
                     span (
-                        span.batch (styles { probe }),
+                        classOf { probe },
                         span.mounted (fun (surface: Surface) (element: HTMLSpanElement) ->
                             surface.Probe <- element
                             fun () -> surface.Probe <- null)
@@ -799,13 +831,13 @@ module EditorView =
                 }
 
                 div (
-                    div.batch (styles { scrollTrack }),
+                    classOf { scrollTrack },
                     div.onPointerdown Handlers.trackDown,
                     div.onPointermove Handlers.trackMove,
                     div.onPointerup Handlers.trackEnd,
                     div.onPointercancel Handlers.trackEnd
                 ) {
-                    div (styles { scrollThumb }) { () }
+                    div (classOf { scrollThumb }, div.style thumbStyle) { () }
                 }
             }
 

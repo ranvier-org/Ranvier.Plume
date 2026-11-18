@@ -3,7 +3,6 @@ module Ranvier.Plume.View.Tests.Host
 
 open System
 open System.Text
-open System.Text.RegularExpressions
 open Ranvier
 open Ranvier.Dom
 open Ranvier.View
@@ -89,21 +88,15 @@ type ManualScheduler() =
 /// One definition for every test: the component is defined once and mounted many times.
 let definition = EditorView.create EditorView.defaults
 
-/// The CSS of the definition. Each variable a rule reads is registered as non-inherited, so a change to it
-/// restyles its own element alone.
+/// The CSS of the definition.
 let private css =
     let text = StringBuilder ()
     text.Append("html,body{margin:0;padding:0;overflow:hidden}\n") |> ignore
     text.Append(Stylesheet.render definition.Rules).Append '\n' |> ignore
 
     for style in definition.Styles do
-        let rules = style.Rules |> List.map (fun rule -> (Stylesheet.render [ rule ]).TrimEnd ())
-
-        for found in Regex.Matches (String.concat "\n" rules, @"var\((--r-[0-9a-f]+-[0-9]+)") |> Seq.map (fun m -> m.Groups[1].Value) |> Seq.distinct do
-            text.Append("@property ").Append(found).Append(" { syntax: \"*\"; inherits: false; }\n") |> ignore
-
-        for rule in rules do
-            text.Append(rule).Append '\n' |> ignore
+        for rule in style.Rules do
+            text.Append((Stylesheet.render [ rule ]).TrimEnd ()).Append '\n' |> ignore
 
     text.ToString ()
 

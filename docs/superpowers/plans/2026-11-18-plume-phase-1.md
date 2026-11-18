@@ -761,6 +761,8 @@ Modes: interactive, `--shot`, `--bench` (the nine rows of `Harness.fs:254-263`, 
   figure and state the arithmetic.
 - [x] **Step 3:** If a 7.1 row fails: profile, and fix inside the core-lookup design. If the cause is a core
   primitive, stop and report the primitive and the missing behaviour.
+  *Done 2026-11-19: the two typing rows failed in the first record. The profile and the changes are in
+  `ACCEPTANCE.md`, 7.1; all nine rows pass in the record made after them. No core primitive was the cause.*
 - [x] **Step 4:** Write `docs/ACCEPTANCE.md` with the tables and labels. Update the dossier's status line and
   decision 17.
 - [x] **Step 5:** `dotnet fsi --exec build.fsx -- ci`; `rfs check --fail-on-error`; fresh-context review of the

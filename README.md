@@ -38,6 +38,8 @@ dotnet run -c Release --project samples/EditorShowcase                 # the win
 dotnet run -c Release --project samples/EditorShowcase -- --bench      # frame cost, hidden window
 dotnet run -c Release --project samples/EditorShowcase -- --memory     # what history holds
 dotnet run -c Release --project samples/EditorShowcase -- --load       # scalar against vectorised line scan
+dotnet run -c Release --project samples/EditorShowcase -- --profile    # frame cost with each view feature off
+dotnet run -c Release --project samples/EditorShowcase -- --writes     # the page writes of a keystroke and a scroll
 dotnet run -c Release --project samples/EditorShowcase -- --shot out.png
 ```
 

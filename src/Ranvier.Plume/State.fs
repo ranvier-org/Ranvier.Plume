@@ -20,8 +20,21 @@ module internal Ids =
 /// A facet, without its value types.
 [<AbstractClass>]
 type FacetBase internal (id: int) =
+    // The value without inputs, in an array of one: the value itself may be null.
+    let mutable fallback: obj[] = null
     member internal _.Id = id
     abstract CombineBoxed: inputs: obj[] -> obj
+
+    /// The value of the facet without inputs: one instance for the facet's life.
+    member internal this.DefaultBoxed: obj =
+        let held = Volatile.Read &fallback
+
+        if not (isNull held) then
+            held[0]
+        else
+            let made = [| this.CombineBoxed Array.empty |]
+            let before = Interlocked.CompareExchange (&fallback, made, null)
+            (if isNull before then made else before)[0]
 
 /// A state field, without its value type.
 and [<AbstractClass>] FieldBase internal (id: int) =
@@ -71,7 +84,6 @@ and [<Sealed>] internal Configuration
         facets: Dictionary<int, FacetSlot>,
         dynamicCount: int
     ) =
-    let defaults = Dictionary<int, obj> ()
     member _.Root = root
     /// The content of each compartment, by compartment id.
     member _.Compartments = compartments
@@ -79,17 +91,6 @@ and [<Sealed>] internal Configuration
     member _.FieldIndex = fieldIndex
     member _.Facets = facets
     member _.DynamicCount = dynamicCount
-
-    /// The value of a facet without inputs.
-    member _.Default(facet: FacetBase) : obj =
-        lock defaults (fun () ->
-            let mutable value = null
-
-            if not (defaults.TryGetValue (facet.Id, &value)) then
-                value <- facet.CombineBoxed Array.empty
-                defaults[facet.Id] <- value
-
-            value)
 
 /// The state of an editor at one position of its document's log: the text, the selection, and the values of the
 /// configured fields and facets. Immutable.
@@ -106,7 +107,7 @@ and [<Sealed>] EditorState internal (config: Configuration, doc: Text, selection
         let mutable slot: FacetSlot = null
 
         if not (config.Facets.TryGetValue (facet.Id, &slot)) then
-            config.Default facet
+            facet.DefaultBoxed
         elif slot.Index < 0 then
             slot.Static
         else

@@ -80,31 +80,44 @@ type internal MarkupCache(theme: Theme, capacity: int) =
         misses <- 0L
 
     member private _.Build(language: Language voption, line: string) : string =
-        match language with
-        | ValueNone -> Html.escape line
-        | ValueSome language ->
+        if line.Length = 0 then
+            ""
+        else
             builder.Clear () |> ignore
             let mutable at = 0
+            let mutable spans = 0
 
-            for token in language.Tokenize line do
-                // A token outside the line or before the one before it is left out.
-                if token.From >= at && token.To <= line.Length && token.To > token.From then
-                    Html.escapeInto builder line at token.From
-                    let mutable name = null
+            match language with
+            | ValueNone -> ()
+            | ValueSome language ->
+                for token in language.Tokenize line do
+                    // A token outside the line or before the one before it is left out.
+                    if token.From >= at && token.To <= line.Length && token.To > token.From then
+                        Html.escapeInto builder line at token.From
+                        let mutable name = null
 
-                    if classes.TryGetValue (token.Tag.Id, &name) then
-                        builder.Append("<span class=\"").Append(name).Append "\">" |> ignore
-                        Html.escapeInto builder line token.From token.To
-                        builder.Append "</span>" |> ignore
-                    else
-                        Html.escapeInto builder line token.From token.To
+                        if classes.TryGetValue (token.Tag.Id, &name) then
+                            spans <- spans + 1
+                            builder.Append("<span class=\"").Append(name).Append "\">" |> ignore
+                            Html.escapeInto builder line token.From token.To
+                            builder.Append "</span>" |> ignore
+                        else
+                            Html.escapeInto builder line token.From token.To
 
-                    at <- token.To
+                        at <- token.To
 
             Html.escapeInto builder line at line.Length
+
+            // Markup of text alone ends with an empty comment. The engine writes text alone into the text node
+            // already in the row, and rows scrolled that way cost it more than rows given new nodes
+            // (`ACCEPTANCE.md`).
+            if spans = 0 then
+                builder.Append "<!---->" |> ignore
+
             builder.ToString ()
 
-    /// The markup of `line`: its text escaped, with a span for each token whose tag the theme gives a class.
+    /// The markup of `line`: its text escaped, with a span for each token whose tag the theme gives a class, and
+    /// an empty comment after a line without spans.
     member this.Markup(language: Language voption, enabled: bool, line: string) : string =
         let same =
             match held, language with
@@ -145,8 +158,8 @@ type internal RowConfig(gutters: GutterSpec[], keys: obj[], language: Language v
     member _.Language = language
     member _.Recycle = recycle
     member _.Cache = cache
-    /// A buffer for the markup of a row.
-    member val Builder = StringBuilder 256
+    /// A buffer for the markup of a row's gutter markers.
+    member val Builder = StringBuilder 128
 
     /// The start of each gutter's marker element, up to the words a marker adds to its class.
     member val GutterOpen: string[] =
@@ -163,15 +176,24 @@ type internal RowConfig(gutters: GutterSpec[], keys: obj[], language: Language v
         gutters
         |> Array.map (fun gutter -> String.Concat ("\" style=\"width:", gutter.Width.ToString ("0.##", CultureInfo.InvariantCulture), "px\">"))
 
-    member _.Same(other: RowConfig) : bool =
-        recycle = other.Recycle
-        && cache = other.Cache
-        && obj.ReferenceEquals (gutters, other.Gutters)
-        && Array.forall2 (fun (a: obj) (b: obj) -> Object.Equals (a, b)) keys other.Keys
-        && (match language, other.Language with
-            | ValueSome a, ValueSome b -> obj.ReferenceEquals (a, b)
-            | ValueNone, ValueNone -> true
-            | _ -> false)
+    /// True when a configuration of these values would compute the rows this one computes.
+    member _.Holds(specs: GutterSpec[], state: EditorState, tokenizer: Language voption, recycling: bool, caching: bool) : bool =
+        let mutable same =
+            recycle = recycling
+            && cache = caching
+            && obj.ReferenceEquals (gutters, specs)
+            && (match language, tokenizer with
+                | ValueSome a, ValueSome b -> obj.ReferenceEquals (a, b)
+                | ValueNone, ValueNone -> true
+                | _ -> false)
+
+        let mutable index = 0
+
+        while same && index < gutters.Length do
+            same <- Object.Equals (keys[index], gutters[index].Key state)
+            index <- index + 1
+
+        same
 
 /// What a row draws.
 [<CustomEquality; NoComparison>]
@@ -181,8 +203,12 @@ type internal RowContent =
         Line: int
         /// The distance from the sheet's top in CSS pixels.
         Top: float
-        /// The gutter markers and the line, as markup.
+        /// The markers of the gutters, as markup.
+        GutterHtml: string
+        /// The line, as markup.
         Html: string
+        /// `GutterHtml`, as the template takes it.
+        Gutter: UnsafeHtml
         /// `Html`, as the template takes it.
         Markup: UnsafeHtml
     }
@@ -193,6 +219,7 @@ type internal RowContent =
             content.Line = this.Line
             && content.Top = this.Top
             && String.Equals (content.Html, this.Html, StringComparison.Ordinal)
+            && String.Equals (content.GutterHtml, this.GutterHtml, StringComparison.Ordinal)
         | _ -> false
 
     override this.GetHashCode() = this.Line
@@ -249,7 +276,9 @@ module internal Rows =
         {
             Line = -1
             Top = -lineHeight
+            GutterHtml = ""
             Html = ""
+            Gutter = emptyHtml
             Markup = emptyHtml
         }
 
@@ -423,20 +452,22 @@ module internal Rows =
                 window.Written.Value <- window.Written.Value + 1L
                 let line = Text.line number window.Text
 
-                let text = window.Markup.Markup (window.Config.Language, window.Config.Cache, line.Text)
+                let html = window.Markup.Markup (window.Config.Language, window.Config.Cache, line.Text)
 
-                let html =
+                let gutter =
                     if window.Config.Gutters.Length = 0 then
-                        text
+                        ""
                     else
                         let builder = window.Config.Builder
                         builder.Clear () |> ignore
                         appendGutters builder window line
-                        builder.Append(text).ToString ()
+                        builder.ToString ()
 
                 {
                     Line = number
                     Top = float (number - window.Anchor) * window.LineHeight + Lead
+                    GutterHtml = gutter
                     Html = html
+                    Gutter = (if gutter.Length = 0 then emptyHtml else UnsafeHtml.Trust gutter)
                     Markup = UnsafeHtml.Trust html
                 }

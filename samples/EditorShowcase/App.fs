@@ -39,6 +39,14 @@ let private recycleSlot = Compartment.create ()
 let private cacheSlot = Compartment.create ()
 let private layerSlot = Compartment.create ()
 
+/// The features of the text view, each in a compartment of its own, so a measurement can switch one off.
+let features: (string * Compartment * Extension) list =
+    [ "numbers", Compartment.create (), LineNumbers.extension LineNumbers.defaults
+      "active", Compartment.create (), ActiveLine.extension
+      "selection", Compartment.create (), DrawSelection.extension
+      "cursor", Compartment.create (), Cursor.extension Cursor.defaults
+      "language", Compartment.create (), Language.extension Lexer.language ]
+
 /// An open file: its editor, and the frames of the window it is shown in.
 [<ReferenceEquality>]
 type FileSlot =
@@ -154,11 +162,7 @@ let private setup (ctx: Setup) (props: Props) : State =
                     onToggleTour.Value ()
                     true) ]
           Keymap.extension Keymap.defaults
-          LineNumbers.extension LineNumbers.defaults
-          ActiveLine.extension
-          DrawSelection.extension
-          Cursor.extension Cursor.defaults
-          Language.extension Lexer.language
+          Extension.many (features |> List.map (fun (_, slot, extension) -> slot.Of extension))
           recycleSlot.Of (EditorView.recycleRows.Of session.Recycle)
           cacheSlot.Of (EditorView.markupCache.Of session.Cached)
           layerSlot.Of (EditorView.compositorLayer.Of session.Layer)

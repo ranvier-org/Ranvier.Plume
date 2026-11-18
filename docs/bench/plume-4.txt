@@ -2,7 +2,7 @@ Editor showcase on Ranvier.Plume --bench
   window     1280 x 800 CSS px asked for, 1280 x 800 device px (Window.PixelSize), created hidden
   compositor GPU compositing True (Window.IsGpuComposited)
   text view  713.000 CSS px high (clientHeight), 49 row elements, character advance 7.697 CSS px (64 characters measured with getBoundingClientRect)
-  styles     34 Ranvier.Css classes on the page, each with a rule in the constructed sheet the document adopts (256 rules read back from the engine; 9 of the classes were handed over by Ranvier.Plume.View)
+  styles     32 Ranvier.Css classes on the page, each with a rule in the constructed sheet the document adopts (236 rules read back from the engine; 9 of the classes were handed over by Ranvier.Plume.View)
   workloads  'lines x3' scrolls 3 line(s) a frame, '7 px' scrolls 7 CSS px a frame, 'typing' inserts one character a frame at the cursor;
              all on the 1,000,000-line file, 240 timed frames after 30 untimed ones
   dispatch   Stopwatch around the workload's call: EditorView.ScrollBy (a signal write), or Commands.insertText (the transaction, the log, the fold, the row and its DOM write)
@@ -11,14 +11,14 @@ Editor showcase on Ranvier.Plume --bench
   rows       rows the lookup computed in the frame (EditorView.RowsWritten), mean over the timed frames
 
   workload   recycling  cache  layer   rows/frame   dispatch ms mean  median     p95    app ms mean  median     p95   turn ms mean  median     p95   total mean
-  lines x3   on         on     on          3.2         0.010   0.009   0.016         0.509   0.438   0.759         0.951   0.596   2.877       1.470
-  lines x3   off        on     on         49.0         0.014   0.014   0.021         1.837   1.749   2.417         4.037   4.117   5.933       5.888
-  lines x3   on         off    on          3.2         0.005   0.004   0.007         0.496   0.443   0.677         1.193   0.779   3.529       1.693
-  lines x3   off        off    on         49.0         0.010   0.010   0.014         2.276   2.055   3.111         5.842   6.056   8.802       8.128
-  lines x3   on         on     off         3.2         0.004   0.004   0.008         0.418   0.387   0.696         1.220   0.825   3.353       1.643
-  7 px       on         on     on          0.3         0.003   0.003   0.006         0.344   0.320   0.530         0.591   0.225   2.476       0.938
-  7 px       on         on     off         0.3         0.003   0.003   0.006         0.277   0.247   0.459         0.583   0.223   2.372       0.863
-  typing     on         on     on          1.0         0.267   0.243   0.432         0.002   0.001   0.003         1.324   1.060   2.738       1.592
-  typing     on         off    on          1.0         0.261   0.207   0.361         0.003   0.001   0.003         1.317   1.093   2.710       1.581
+  lines x3   on         on     on          3.2         0.010   0.008   0.017         0.368   0.325   0.634         0.876   0.575   2.812       1.254
+  lines x3   off        on     on         49.0         0.012   0.012   0.021         1.363   1.209   1.815         3.461   2.995   5.414       4.836
+  lines x3   on         off    on          3.2         0.003   0.003   0.005         0.335   0.292   0.506         0.850   0.567   2.638       1.188
+  lines x3   off        off    on         49.0         0.006   0.006   0.010         1.239   1.106   1.615         3.415   3.004   5.217       4.660
+  lines x3   on         on     off         3.2         0.003   0.003   0.004         0.242   0.227   0.382         0.772   0.544   2.505       1.017
+  7 px       on         on     on          0.3         0.002   0.002   0.003         0.135   0.116   0.247         0.255   0.116   0.786       0.392
+  7 px       on         on     off         0.3         0.002   0.001   0.003         0.088   0.076   0.197         0.218   0.105   0.592       0.307
+  typing     on         on     on          1.0         0.165   0.152   0.267         0.001   0.001   0.001         0.880   0.711   1.845       1.046
+  typing     on         off    on          1.0         0.160   0.150   0.281         0.001   0.001   0.002         0.928   0.746   1.869       1.089
 
 One run on one machine. Compare two runs only when both came from this benchmark at the same window size.
