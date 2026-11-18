@@ -21,6 +21,7 @@
   <ItemGroup>
     <Compile Include="LineScan.fs" />
     <Compile Include="Text.fs" />
+    <Compile Include="ChangeSet.fs" />
     <None Include="../../LICENSE" Pack="true" PackagePath="licenses/Ranvier.Plume/" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>

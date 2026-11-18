@@ -11,6 +11,7 @@
     <ItemGroup>
         <Compile Include="Helpers.fs" />
         <Compile Include="TextTests.fs" />
+        <Compile Include="ChangeSetTests.fs" />
         <Compile Include="Main.fs" />
     </ItemGroup>
 
