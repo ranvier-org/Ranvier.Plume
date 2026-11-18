@@ -19,8 +19,8 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 
 `EditorShowcase --bench` (the baseline, with the Dispatch stopwatch added) and
 `Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code of
-commit `7b2e860`. The commits after it change the pointer-down handler, tests, the sample's `--profile` mode and
-comments, none of which `--bench` runs. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
+commit `7b2e860`. The commits after it change the pointer-down handler, tests, the sample's `--profile` mode,
+where the sample's restore is written, the build script and comments, none of which `--bench` runs. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
 file. Values are means of a
 run in milliseconds; a cell gives the lowest and highest of the five runs. The last column compares the means of
 the five runs, and counts the pairs in which Plume's run was below the baseline's run made just before it. The
@@ -266,18 +266,30 @@ facet's default.
   (**from source**, the workspace's checkout at version 0.1.1). The baseline uses reader values throughout. A
   cache of the lowered text in Ranvier.Css would let the view use them again; the place is marked
   `//FOR-REVIEW` in `Component.fs`.
-- **The host constructs no pointer or wheel event.** `Ranvier.Dom.EventConstruction` has `Event`, `Custom`, `UI`,
-  `Mouse`, `Keyboard` and `Focus` (**from source**, `Ranvier/src/Ranvier.Dom/EventConstruction.fs`). The view's
-  pointer and wheel logic is tested through the functions its listeners call, with the values an event carries.
+- **Pointer and wheel events come from the host's input calls, not from event construction.**
+  `Ranvier.Dom.EventConstruction` has `Event`, `Custom`, `UI`, `Mouse`, `Keyboard` and `Focus` (**from source**,
+  `Ranvier/src/Ranvier.Dom/EventConstruction.fs`), so a test cannot construct a pointer or a wheel event. The
+  host takes the input itself: `WebCoreHost.Mouse`, `Wheel`, `Click`, `Type` and `SetFocused` are what a window
+  calls for the mouse, the wheel, a key and its own focus. The view tests drive its listeners with them.
+- **A package referenced in one configuration only makes `rfs check` report a false error.** The sample
+  references the hot reload host in Debug only. A Release build then wrote a restore without it into the folder
+  `rfs` reads, and `rfs` reported `'Hmr' is not defined` until a Debug restore and `rfs status --reload`. The
+  sample now has a restore folder for each configuration (`samples/Directory.Build.props`), and `rfs check`
+  reports 0 errors straight after the Release gate, with a reload and without. The workspace's `EditorShowcase`
+  and `AstroShowcase` reference the host the same way (**from source**, their project files); they are outside
+  this repository and unchanged.
 - **Rows whose line is text alone cost the engine more to scroll** (7.1, point 5). The view ends such markup
   with an empty comment. The cause is not established.
 
 ## Not verified
 
-- **No window was shown.** The interactive sample, the scroll tour, the caret blink and frame delivery by a
-  display were not run. Keyboard input ran through synthetic events in hidden windows. Pointer selection, the
-  wheel and the scrollbar ran through the functions their listeners call; the listeners themselves have not run,
-  because the host constructs no pointer or wheel event.
+- **No window was shown.** What a shown window alone gives was not run: frames delivered by a display, the
+  interactive sample and its scroll tour, and input as the desktop delivers it to SDL. Everything from the host's
+  input calls inward ran in hidden windows: a press, a drag that leaves the viewport, a release and a press with
+  Shift select through the pointer listeners; a press on the text gives the view the keyboard once the page has
+  its window's focus; the wheel scrolls, and two wheel events in a frame lay the rows out once; a press and a
+  drag on the scrollbar's track move the document and the thumb; a key typed after a click inserts at the click;
+  and the cursor blinks on the host's timers. With the three listeners removed, the four input tests fail.
 - The hot reload path of the sample (`dotnet run -- dev`) is carried over from the baseline and was not run.
 - Both libraries build for `net10.0` and `net8.0`. The tests ran on `net10.0` only.
 - The traced build (`-p:RanvierTrace=true`) is wired and was not built.
@@ -287,5 +299,8 @@ facet's default.
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 112 tests and the view has 24. `rfs check --fail-on-error` reports 0 errors in 5 projects,
-after a Debug build and `rfs status --reload`.
+The state package has 112 tests and the view has 29.
+
+`dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
+`rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also
+reports 0 errors.

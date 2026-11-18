@@ -32,3 +32,6 @@ Always pass `--exec` when invoking `dotnet fsi` (`dotnet fsi --exec build.fsx --
 ## Before reporting work as done
 
 `dotnet fsi --exec build.fsx -- ci` builds the solution in Release and runs every test project unfiltered.
+
+`dotnet fsi --exec build.fsx -- check` builds the solution in Debug and runs `rfs check --fail-on-error`. `rfs`
+reads the Debug configuration, so it needs that build once; a Release build after it changes nothing `rfs` reads.

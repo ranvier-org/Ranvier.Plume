@@ -30,6 +30,7 @@ dotnet fsi --exec build.fsx -- ci
 ```
 
 builds the solution in Release and runs both test projects (the view tests open hidden windows).
+`dotnet fsi --exec build.fsx -- check` builds it in Debug and runs `rfs check --fail-on-error`.
 
 The sample in `samples/EditorShowcase` is the workspace's `EditorShowcase` rebuilt on the library:
 

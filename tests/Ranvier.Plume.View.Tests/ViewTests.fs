@@ -280,6 +280,149 @@ let tests =
                     mounted.Step ()
                     Expect.equal view.ScrollTop.Value 0.0 "a point above the track is the document's top")
 
+            testCase "the engine's mouse input reaches the pointer listeners"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    let view = mounted.View
+                    let editor = mounted.Editor
+                    // The view starts at the window's corner, so a point of the window is a point of the viewport.
+                    let x (column: int) = int (Math.Round (view.GutterWidth.Value + float column * view.CharWidth.Value))
+                    let y (line: int) = line * 20 + 10
+                    let at (line: int) (column: int) = (Text.line line editor.Text.Value).From + column
+                    let ends () = let main = editor.Selection.Value.Main in main.Anchor, main.Head
+
+                    // The host's actions are 0 for a move, 1 for a press and 2 for a release; button -1 is none and 0
+                    // the left one; modifier 1 is Shift.
+                    let mouse (action: int) (px: int) (py: int) (button: int) (modifiers: int) =
+                        host.Mouse (action, px, py, button, (if action = 0 then 0 else 1), modifiers) |> ignore
+                        mounted.Step ()
+
+                    mouse 0 (x 2) (y 3) -1 0
+                    Expect.equal (ends ()) (0, 0) "a move without a button selects nothing"
+                    // A hidden window never has the desktop's focus. This is what a window tells the engine when it
+                    // gains it; without it the engine sends no focus event.
+                    host.SetFocused true
+                    Expect.isFalse view.HasFocus.Value "the view starts without the keyboard"
+                    mouse 1 (x 2) (y 3) 0 0
+                    Expect.equal (ends ()) (at 3 2, at 3 2) "a press puts the cursor under the pointer"
+                    Expect.isTrue view.HasFocus.Value "and gives the view the keyboard"
+                    mouse 0 (x 4) (y 5) 0 0
+                    Expect.equal (ends ()) (at 3 2, at 5 4) "a move with the button down takes the head with it"
+                    // The viewport holds the pointer: over the scrollbar, the move still selects and scrolls nothing.
+                    mouse 0 1275 (y 6) 0 0
+                    Expect.equal (ends ()) (at 3 2, (Text.line 6 editor.Text.Value).To) "the viewport keeps the pointer that left it"
+                    Expect.equal view.ScrollTop.Value 0.0 "and the scrollbar under it does not move"
+                    mouse 2 1275 (y 6) 0 0
+                    mouse 0 (x 0) (y 0) -1 0
+                    Expect.equal (ends ()) (at 3 2, (Text.line 6 editor.Text.Value).To) "a move after the release selects nothing"
+                    mouse 1 (x 1) (y 8) 0 1
+                    Expect.equal (ends ()) (at 3 2, at 8 1) "a press with Shift moves the head and keeps the anchor"
+                    mouse 2 (x 1) (y 8) 0 1
+                    Expect.equal (shown mounted "[data-pm~=selection]").Length 6 "the selection is drawn on each of its lines"
+                    Expect.sequenceEqual (inked mounted) [ "9" ] "and the line of its head is the active one"
+                    host.SetFocused false
+                    mounted.Step ()
+                    Expect.isFalse view.HasFocus.Value "the view loses the keyboard with its window")
+
+            testCase "the engine's wheel input scrolls the view"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    let view = mounted.View
+                    host.Wheel (400, 300, 0.0f, 120.0f, 0) |> ignore
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value 120.0 "a wheel over the text scrolls by its delta"
+                    Expect.equal (textOf mounted.Rows[6]) "line 6" "the rows follow"
+                    Expect.floatClose Accuracy.medium (mounted.Rows[6].getBoundingClientRect ()).top 0.0 "line 6 is at the top"
+                    host.Wheel (400, 300, 0.0f, -500.0f, 0) |> ignore
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value 0.0 "the document's top stops it"
+
+                    // Away from the document's top, where the rows above the first line shown are in the pool.
+                    mounted.Run (fun () -> view.ScrollTo (500.0 * 20.0))
+                    mounted.Step ()
+                    let before = view.RowsWritten ()
+                    host.Wheel (400, 300, 0.0f, 20.0f, 0) |> ignore
+                    host.Wheel (400, 300, 0.0f, 40.0f, 0) |> ignore
+                    Expect.equal (view.RowsWritten ()) before "wheel events alone compute no row"
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value (500.0 * 20.0 + 60.0) "the frame takes both deltas"
+                    Expect.equal (view.RowsWritten () - before) 3L "and lays out the three lines once")
+
+            testCase "the engine's mouse input drags the scrollbar"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    let view = mounted.View
+                    let range = 1000.0 * 20.0 - 800.0 + 40.0
+                    let thumb = 800.0 * 800.0 / (range + 800.0)
+                    // Where the document is when the thumb's centre is `py` pixels down the track.
+                    let place (py: float) = Math.Round (range * Math.Clamp ((py - thumb / 2.0) / (800.0 - thumb), 0.0, 1.0))
+                    let track = (viewportOf mounted).parentElement.lastChild :?> Element
+                    let thumbTop () = ((track.firstChild :?> Element).getBoundingClientRect ()).top
+
+                    let mouse (action: int) (px: int) (py: int) (button: int) =
+                        host.Mouse (action, px, py, button, (if action = 0 then 0 else 1), 0) |> ignore
+                        mounted.Step ()
+
+                    mouse 0 1273 200 -1
+                    mouse 1 1273 200 0
+                    Expect.equal view.ScrollTop.Value (place 200.0) "a press on the track centres the thumb there"
+                    Expect.floatClose Accuracy.low (thumbTop ()) (200.0 - thumb / 2.0) "and the thumb is drawn there"
+                    mouse 0 1273 600 0
+                    Expect.equal view.ScrollTop.Value (place 600.0) "a move with the button down drags it"
+                    // The track holds the pointer: over the text, the move still drags and selects nothing.
+                    mouse 0 640 700 0
+                    Expect.equal view.ScrollTop.Value (place 700.0) "the track keeps the pointer that left it"
+                    Expect.equal mounted.Editor.Selection.Value.Main.Head 0 "and the text under it is not selected"
+                    mouse 2 640 700 0
+                    mouse 0 1273 100 -1
+                    Expect.equal view.ScrollTop.Value (place 700.0) "a move after the release drags nothing")
+
+            testCase "the engine's key input types where a click put the cursor"
+            <| fun () ->
+                withView [ "hello" ] standard 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    let view = mounted.View
+                    host.Click (int (Math.Round (view.GutterWidth.Value + 2.0 * view.CharWidth.Value)), 10) |> ignore
+                    mounted.Step ()
+                    Expect.equal mounted.Editor.Selection.Value.Main.Head 2 "the click puts the cursor after two characters"
+                    host.Type ("a", "KeyA", "a")
+                    mounted.Step ()
+                    Expect.equal (Text.toString mounted.Editor.Text.Value) "heallo" "a key typed after the click inserts there"
+                    Expect.equal (textOf mounted.Rows[0]) "heallo" "and the row shows it")
+
+            testCase "the cursor blinks on the host's timers and a move of the cursor lights it"
+            <| fun () ->
+                let blinking =
+                    [
+                        Keymap.extension Keymap.defaults
+                        Cursor.extension { Cursor.defaults with BlinkRate = 40.0 }
+                    ]
+
+                withView (manyLines 10) blinking 800 (fun mounted ->
+                    let lit () = (shown mounted "[data-pm~=cursor]").Length = 1
+
+                    // Turns of the window until `wanted`, for at most two seconds.
+                    let turnsUntil (wanted: unit -> bool) : bool =
+                        let clock = Diagnostics.Stopwatch.StartNew ()
+
+                        while not (wanted ()) && clock.ElapsedMilliseconds < 2000L do
+                            Threading.Thread.Sleep 5
+                            mounted.Step ()
+
+                        wanted ()
+
+                    mounted.Step ()
+                    Expect.isTrue (lit ()) "lit when mounted"
+                    Expect.isTrue (turnsUntil (lit >> not)) "dark after the blink rate"
+                    Expect.isTrue (turnsUntil lit) "and lit again"
+                    Expect.isTrue (turnsUntil (lit >> not)) "dark once more"
+                    mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.selection (EditorSelection.single 3 3) ])
+                    mounted.Step ()
+                    Expect.isTrue (lit ()) "a move of the cursor lights it at once")
+
             testCase "keys run the keymap and printable keys insert"
             <| fun () ->
                 withView [ "hello" ] standard 800 (fun mounted ->

@@ -1,0 +1,12 @@
+<Project>
+    <Import Project="../Directory.Build.props" />
+
+    <!-- A sample references the hot reload host in Debug only, so what restore writes differs by configuration.
+         Each configuration has its own restore folder: a Release build leaves the Debug one, which rfs and an
+         IDE read, as it was. -->
+    <PropertyGroup>
+        <SampleRestoreConfiguration>$(Configuration)</SampleRestoreConfiguration>
+        <SampleRestoreConfiguration Condition="'$(SampleRestoreConfiguration)' == ''">Debug</SampleRestoreConfiguration>
+        <MSBuildProjectExtensionsPath>$(MSBuildProjectDirectory)/obj/restore/$(SampleRestoreConfiguration)/</MSBuildProjectExtensionsPath>
+    </PropertyGroup>
+</Project>
