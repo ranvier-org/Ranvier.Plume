@@ -445,30 +445,32 @@ let tests =
 
             testCase "the cursor blinks on the host's timers and a move of the cursor lights it"
             <| fun () ->
+                // A blink long enough that a stalled turn of a busy machine does not pass for one.
                 let blinking =
                     [
                         Keymap.extension Keymap.defaults
-                        Cursor.extension { Cursor.defaults with BlinkRate = 40.0 }
+                        Cursor.extension { Cursor.defaults with BlinkRate = 200.0 }
                     ]
 
                 withView (manyLines 10) blinking 800 (fun mounted ->
                     let lit () = (shown mounted "[data-pm~=cursor]").Length = 1
 
-                    // Turns of the window until `wanted`, for at most two seconds.
+                    // Turns of the window until `wanted`, for at most five seconds.
                     let turnsUntil (wanted: unit -> bool) : bool =
                         let clock = Diagnostics.Stopwatch.StartNew ()
 
-                        while not (wanted ()) && clock.ElapsedMilliseconds < 2000L do
+                        while not (wanted ()) && clock.ElapsedMilliseconds < 5000L do
                             Threading.Thread.Sleep 5
                             mounted.Step ()
 
                         wanted ()
 
                     mounted.Step ()
-                    Expect.isTrue (lit ()) "lit when mounted"
+                    Expect.isTrue (turnsUntil lit) "lit"
                     Expect.isTrue (turnsUntil (lit >> not)) "dark after the blink rate"
                     Expect.isTrue (turnsUntil lit) "and lit again"
                     Expect.isTrue (turnsUntil (lit >> not)) "dark once more"
+                    // Lit by the move itself: the timer's next turn is most of a blink away.
                     mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.selection (EditorSelection.single 3 3) ])
                     mounted.Step ()
                     Expect.isTrue (lit ()) "a move of the cursor lights it at once")

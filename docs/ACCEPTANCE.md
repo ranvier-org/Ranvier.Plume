@@ -20,8 +20,8 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 `EditorShowcase --bench` (the baseline, with the Dispatch stopwatch added) and
 `Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code of
 commit `7b2e860`. The commits after it change the pointer-down handler, tests, the sample's `--profile` mode,
-where the sample's restore is written, the sample's `--tour` mode, the build script and comments, none of which
-`--bench` runs. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
+where the sample's restore is written, the sample's `--tour` mode and the name of its exception, the build
+script, the test projects and comments, none of which `--bench` runs. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
 file. Values are means of a
 run in milliseconds; a cell gives the lowest and highest of the five runs. The last column compares the means of
 the five runs, and counts the pairs in which Plume's run was below the baseline's run made just before it. The
@@ -273,6 +273,11 @@ facet's default.
   `Ranvier/src/Ranvier.Dom/EventConstruction.fs`), so a test cannot construct a pointer or a wheel event. The
   host takes the input itself: `WebCoreHost.Mouse`, `Wheel`, `Click`, `Type` and `SetFocused` are what a window
   calls for the mouse, the wheel, a key and its own focus. The view tests drive its listeners with them.
+- **The hot reload host could not evaluate the sample's `Harness.fs`.** Its exception was private and named
+  `Failed`. The host evaluates a file's functions in F# Interactive, where a private exception is out of reach
+  and `Failed` is a case of Ranvier's `Reading`; warm-up reported "baseline of Harness.fs failed", and an edit to
+  the file was an error. It is now `RunFailed` and public, and both are gone. The baseline's `Harness.fs` has the
+  same declaration (**from source**, `EditorShowcase/Harness.fs`, line 104) and is unchanged.
 - **A package referenced in one configuration only makes `rfs check` report a false error.** The sample
   references the hot reload host in Debug only. A Release build then wrote a restore without it into the folder
   `rfs` reads, and `rfs` reported `'Hmr' is not defined` until a Debug restore and `rfs status --reload`. The
@@ -307,24 +312,52 @@ window, and none was shown.
   tour's button stopped it, after which 1 of 60 refreshes ran a frame and the text stayed; the wheel, a click in
   the text and a typed key did what they do; F5 started the tour again; a click on a tab opened its file
   (**measured here**: four runs, 14 checks each, exit code 0; the figures are the first run's).
+- **Hot reload.** `dotnet fsi --exec build.fsx -- dev` runs the sample under the hot reload host
+  (`dotnet run -- dev`) with the host's own `-hidden` option, which keeps its window off screen, on a copy of the
+  sample's sources. The host's window loop ran the tour: the first step found the text at line 736. The 14 steps
+  of `samples/EditorShowcase/hot-reload.json` passed: a click stopped the tour; an edit to `App.fs` reached the
+  page as a patch in 1.1 s with the tour still stopped; an edit that does not compile was reported as an error
+  and left the page as it was; the revert was patched in; an edit to `Harness.fs` was evaluated (**measured
+  here**, the host's own report of one run; the first frame came 1.4 s after the host started).
+- **Both frameworks.** The state package's 112 tests run on `net10.0` and on `net8.0`. The view's tests run on
+  `net10.0`, the only target of the native host package.
 
 **Outside the plan, and not run:**
 
-- What only a display or a desktop gives: the timing of a real refresh, and desktop events on their way into the
-  host, which is the window package's code and not this repository's. Showing a window is left to you: the
-  workspace's rule is that the app is launched when you ask for it.
-- The hot reload path of the sample (`dotnet run -- dev`), which shows a window. It is carried over from the
-  baseline.
-- Tests on `net8.0`: both libraries build for `net10.0` and `net8.0`, and the test projects target `net10.0`.
-- A traced build (`-p:RanvierTrace=true`): the plan asks only that tracing is off by default, which it is.
+- A window on your screen. What only that gives is the timing of a real display's refresh and desktop events on
+  their way into the host, which is the window package's code and not this repository's. The workspace's rule is
+  that the app is launched when you ask for it, so this is yours to ask for.
+- A traced build (`-p:RanvierTrace=true`): the plan asks only that tracing is off by default, which it is. Three
+  of the traced packages it needs are not in this machine's package cache.
 - A Fable build, packaging and CI: not in phase 1.
 - Atelier was not read beyond `Atelier.Text` and its tests, and was not built or run.
+
+## Found by running the gate repeatedly
+
+Two tests failed once each in single gate runs, and passed when run again. Both are fixed, and neither was a
+defect in what the library computes.
+
+- **The line-string test failed about once in 45 runs** (3 of 140 runs of the state tests on `net8.0`: twice on
+  a string's instance, once on its time bound). It reads
+  three lines of a 1,000,000-line text, edits a fourth, and expects the same string instances back. A leaf holds
+  its decoded strings weakly, and the process keeps the 64 arrays made most recently; tests running beside this
+  one read other texts, pushed its leaves out, and a garbage collection then dropped their strings. The same test
+  timed one edit and once measured 15.7 ms against a bound of 5 ms. The test now runs apart from the others and
+  times the fastest of five edits: 0 failures in 100 runs on `net8.0` and 50 on `net10.0`.
+- **The documented contract was stronger than the rope.** `Text.lineText` said a line returns the same instance
+  "while that instance is alive". It now says what holds: while the line's leaf still has the strings it decoded.
+  Nothing in the view depends on the instance: rows compare markup by content (dossier, section 11).
+- **The blink test used a 40 ms blink** and asserted "lit" straight after mounting, which a busy machine can
+  miss. It uses 200 ms and waits for each state: 0 failures in 30 runs of the view tests.
 
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 112 tests and the view has 30.
+The state package has 112 tests, run on `net10.0` and on `net8.0`, and the view has 30.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also
 reports 0 errors.
+
+`dotnet fsi --exec build.fsx -- dev`: the sample under the hot reload host, window off screen: 14 of 14 steps
+pass.

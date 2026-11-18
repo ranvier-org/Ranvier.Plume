@@ -83,8 +83,9 @@ module internal Rope =
         | 3uy -> "\r"
         | _ -> ""
 
-    // The string arrays of the 64 leaves read most recently stay strongly held, so a line read before an edit
-    // elsewhere is the same string instance after it. Other leaves hold their strings weakly.
+    // The 64 string arrays made most recently, over every text of the process, stay strongly held: a line read
+    // before an edit elsewhere is then the same string instance after it. A leaf holds its own array weakly, so
+    // an older array lasts until a garbage collection.
     let private recentGate = obj ()
     let private recentRing: string[][] = Array.zeroCreate 64
     let mutable private recentCursor = 0
@@ -1136,7 +1137,9 @@ module Text =
         }
 
     /// The characters of line <c>number</c>. A line an edit left alone returns the string instance it returned before
-    /// the edit, while that instance is alive.
+    /// the edit while its leaf still holds the strings it decoded: the 64 leaves decoded most recently in the
+    /// process hold theirs, and an older leaf holds its until a garbage collection. After that the line returns an
+    /// equal string that is another instance.
     let lineText (number: int) (text: Text) : string =
         checkLine number text
         let struct (leaf, index) = Rope.getLeafAndLine number text.Root

@@ -29,8 +29,11 @@ The design is in [docs/DOSSIER.md](docs/DOSSIER.md). Pre-1.0: the API may change
 dotnet fsi --exec build.fsx -- ci
 ```
 
-builds the solution in Release and runs both test projects (the view tests open hidden windows).
+builds the solution in Release and runs both test projects, the state tests on `net10.0` and `net8.0` (the view
+tests open hidden windows).
 `dotnet fsi --exec build.fsx -- check` builds it in Debug and runs `rfs check --fail-on-error`.
+`dotnet fsi --exec build.fsx -- dev` runs the sample under the hot reload host, window off screen, and checks that
+edits to a copy of its sources reach the page.
 
 The sample in `samples/EditorShowcase` is the workspace's `EditorShowcase` rebuilt on the library:
 

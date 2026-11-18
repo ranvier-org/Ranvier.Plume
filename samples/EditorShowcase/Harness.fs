@@ -101,7 +101,9 @@ let parse (argv: string[]) : Result<Options, string> =
 
     go { Mode = Interactive; Width = WindowW; Height = WindowH; Frames = 240; Lines = 3; File = 0; Tour = true } (List.ofArray argv)
 
-exception private Failed of string
+/// A scripted run that found something wrong. The hot reload host evaluates this file's functions in F#
+/// Interactive, where a private exception is out of reach and `Failed` is a case of Ranvier's `Reading`.
+exception RunFailed of string
 
 let private say (text: string) = Console.WriteLine text
 let private milliseconds (ticks: int64) = float ticks * 1000.0 / float Stopwatch.Frequency
@@ -129,7 +131,7 @@ let private requireRules (window: Window) (session: Session) =
 
     if missing.Count > 0 then
         let names = String.Join(", ", missing)
-        raise (Failed $"{missing.Count} of the {seen.Count} Ranvier.Css classes on the page have no rule in the adopted stylesheet: {names}.")
+        raise (RunFailed $"{missing.Count} of the {seen.Count} Ranvier.Css classes on the page have no rule in the adopted stylesheet: {names}.")
 
     say $"  styles     {seen.Count} Ranvier.Css classes on the page, each with a rule in the constructed sheet the document adopts ({stylesheet.cssRules.length} rules read back from the engine; {editorView.Styles.Length} of the classes were handed over by Ranvier.Plume.View)"
 
@@ -159,7 +161,7 @@ let private hosted (options: Options) (body: Window -> State -> EditorView -> (u
                 state.Frame(1.0 / 60.0)
 
                 if not (window.Step(timeout = 0)) then
-                    raise (Failed "the window closed during the run")
+                    raise (RunFailed "the window closed during the run")
 
             // The first frames size the row pool and measure the font.
             for _ in 1..12 do
@@ -168,7 +170,7 @@ let private hosted (options: Options) (body: Window -> State -> EditorView -> (u
             let view =
                 match currentView state with
                 | ValueSome view -> view
-                | ValueNone -> raise (Failed "the text view did not mount")
+                | ValueNone -> raise (RunFailed "the text view did not mount")
 
             let struct (pixelW, pixelH) = window.PixelSize
             let height = graph.Run(fun () -> view.Height.Value)
@@ -183,7 +185,7 @@ let private hosted (options: Options) (body: Window -> State -> EditorView -> (u
             graph.Run(fun () -> mounted.Dispose())
             container.remove ()
     with
-    | Failed reason ->
+    | RunFailed reason ->
         Console.Error.WriteLine $"FAIL {reason}"
         1
 
@@ -267,7 +269,7 @@ let private bench (options: Options) =
                 let t2 = Stopwatch.GetTimestamp()
 
                 if not (window.Step(timeout = 0)) then
-                    raise (Failed "the window closed during the run")
+                    raise (RunFailed "the window closed during the run")
 
                 let t3 = Stopwatch.GetTimestamp()
 
@@ -360,7 +362,7 @@ let private profile (options: Options) =
                         let t2 = Stopwatch.GetTimestamp()
 
                         if not (window.Step(timeout = 0)) then
-                            raise (Failed "the window closed during the run")
+                            raise (RunFailed "the window closed during the run")
 
                         let t3 = Stopwatch.GetTimestamp()
 
@@ -495,7 +497,7 @@ let private tour (options: Options) =
                     host.Frame()
 
                 if not (window.Step(timeout = 0)) then
-                    raise (Failed "the window closed during the run")
+                    raise (RunFailed "the window closed during the run")
 
                 asked
 
@@ -513,7 +515,7 @@ let private tour (options: Options) =
 
             let holds (what: string) (condition: bool) =
                 if not condition then
-                    raise (Failed $"did not hold: {what}")
+                    raise (RunFailed $"did not hold: {what}")
 
                 say $"  held     {what}"
 
@@ -531,7 +533,7 @@ let private tour (options: Options) =
 
                 match found with
                 | Some element -> element
-                | None -> raise (Failed $"no button reads '{label}'")
+                | None -> raise (RunFailed $"no button reads '{label}'")
 
             let click (element: Element) =
                 let rect = element.getBoundingClientRect ()
@@ -543,7 +545,7 @@ let private tour (options: Options) =
             let view () =
                 match currentView state with
                 | ValueSome view -> view
-                | ValueNone -> raise (Failed "the text view did not mount")
+                | ValueNone -> raise (RunFailed "the text view did not mount")
 
             let top () = graph.Run(fun () -> (view ()).ScrollTop.Value)
             let text = (doc.querySelector "[data-plume]").getBoundingClientRect ()
@@ -601,7 +603,7 @@ let private tour (options: Options) =
             graph.Run(fun () -> mounted.Dispose())
             container.remove ()
     with
-    | Failed reason ->
+    | RunFailed reason ->
         Console.Error.WriteLine $"FAIL {reason}"
         1
 
@@ -671,7 +673,7 @@ let private load () =
                 let elapsed = milliseconds (Stopwatch.GetTimestamp() - started)
 
                 if text.Lines <> lines.Count then
-                    raise (Failed $"the text has {text.Lines} lines, not {lines.Count}")
+                    raise (RunFailed $"the text has {text.Lines} lines, not {lines.Count}")
 
                 elapsed)
             |> Array.sort
@@ -727,7 +729,7 @@ let private apply () =
     let build = time (fun () -> ChangeSet.apply doc (ChangeSet.ofSpecs doc specs))
 
     if not (Text.contentEquals (ChangeSet.apply doc changes) (List.fold (fun text (spec: ChangeSpec) -> Text.replace spec.From spec.To spec.Insert text) doc specs)) then
-        raise (Failed "the change set and the single replacements give different texts")
+        raise (RunFailed "the change set and the single replacements give different texts")
 
     say $"  workload   {grouped count} one-character replacements, one every 100 lines of the {grouped lines.Count}-line file; median of 7 runs after one untimed"
     say $"  ChangeSet.apply of one set of {grouped count} ranges   {fixed3 asSet} ms"
@@ -749,6 +751,6 @@ let run (options: Options) : int =
         | Tour -> tour options
         | Interactive -> invalidOp "the window is opened by Program"
     with
-    | Failed reason ->
+    | RunFailed reason ->
         Console.Error.WriteLine $"FAIL {reason}"
         1

@@ -35,3 +35,6 @@ Always pass `--exec` when invoking `dotnet fsi` (`dotnet fsi --exec build.fsx --
 
 `dotnet fsi --exec build.fsx -- check` builds the solution in Debug and runs `rfs check --fail-on-error`. `rfs`
 reads the Debug configuration, so it needs that build once; a Release build after it changes nothing `rfs` reads.
+
+`dotnet fsi --exec build.fsx -- dev` runs the sample under the hot reload host with its window off screen, on a
+copy of its sources, through the steps of `samples/EditorShowcase/hot-reload.json`.

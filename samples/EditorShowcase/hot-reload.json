@@ -1,0 +1,16 @@
+[
+  { "op": "expect", "name": "the text view is mounted", "selector": "[data-plume]" },
+  { "op": "expect", "name": "the tour's button", "selector": "button:nth-of-type(4)", "text": "Scroll tour: running" },
+  { "op": "click", "name": "stop the tour", "selector": "button:nth-of-type(4)" },
+  { "op": "expect", "name": "the tour is stopped", "selector": "button:nth-of-type(4)", "text": "Scroll tour: stopped" },
+  { "op": "edit", "name": "an edit to the stopped label", "file": "App.fs", "find": "\"Scroll tour: stopped\"", "replace": "\"Scroll tour: paused\"" },
+  { "op": "expect", "name": "the edit is live, and the tour is still stopped", "selector": "button:nth-of-type(4)", "text": "Scroll tour: paused" },
+  { "op": "expect", "name": "the text view is still mounted", "selector": "[data-pm=\"row\"]" },
+  { "op": "edit", "name": "an edit that does not compile", "file": "App.fs", "find": "\"Scroll tour: paused\"", "replace": "\"Scroll tour: paused\" +", "error": true },
+  { "op": "expect", "name": "a failed edit leaves the app as it was", "selector": "button:nth-of-type(4)", "text": "Scroll tour: paused" },
+  { "op": "revert", "name": "the file as it was", "file": "App.fs" },
+  { "op": "expect", "name": "the first label is back", "selector": "button:nth-of-type(4)", "text": "Scroll tour: stopped" },
+  { "op": "edit", "name": "an edit to the scripted modes' file", "file": "Harness.fs", "find": "Editor showcase on Ranvier.Plume --shot", "replace": "Editor showcase on Ranvier.Plume --shot." },
+  { "op": "expect", "name": "the app is as it was after it", "selector": "button:nth-of-type(4)", "text": "Scroll tour: stopped" },
+  { "op": "revert", "name": "that file as it was", "file": "Harness.fs" }
+]
