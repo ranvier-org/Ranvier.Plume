@@ -1,0 +1,4 @@
+# ShipIt reads nothing from a CRLF changelog (RELEASE-RUNBOOK.md in the release workspace).
+* text=auto eol=lf
+**/CHANGELOG.md text eol=lf
+*.sh text eol=lf

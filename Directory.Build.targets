@@ -1,0 +1,27 @@
+<Project>
+    <!--
+    `RanvierTrace=true` compiles in the per-graph event log (`RANVIER_TRACE`) and selects the `.Traced` core packages.
+    -->
+    <PropertyGroup Condition="'$(RanvierTrace)' == 'true'">
+        <DefineConstants>$(DefineConstants);RANVIER_TRACE</DefineConstants>
+    </PropertyGroup>
+
+    <!--
+    `RanvierAotClean=true` (set by the library projects) compiles without reflection-based formatting
+    and marks the net10.0 build trimmable and AOT-compatible, including when tracing is enabled.
+    -->
+    <PropertyGroup Condition="'$(RanvierAotClean)' == 'true'">
+        <OtherFlags>$(OtherFlags) --reflectionfree</OtherFlags>
+        <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net10.0'))">true</IsAotCompatible>
+    </PropertyGroup>
+
+    <!--
+    A traced build packs only under a `.Traced` package id, which a project
+    selects on an explicit `-p:RanvierTrace=true`. The traced and untraced
+    packages hold the same assembly names, namespaces and version.
+    -->
+    <Target Name="RefuseTracedPack" BeforeTargets="GenerateNuspec"
+            Condition="'$(RanvierTrace)' == 'true' and !$(PackageId.EndsWith('.Traced'))">
+        <Error Text="$(PackageId) is built with RanvierTrace=true. Pass -p:RanvierTrace=true to pack $(PackageId).Traced." />
+    </Target>
+</Project>

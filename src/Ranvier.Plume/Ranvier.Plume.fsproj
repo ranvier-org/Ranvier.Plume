@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Tailcalls>false</Tailcalls>
+    <RootNamespace>Ranvier.Plume</RootNamespace>
+    <AssemblyName>Ranvier.Plume</AssemblyName>
+    <PackageId>Ranvier.Plume</PackageId>
+    <PackageId Condition="'$(RanvierTrace)' == 'true'">Ranvier.Plume.Traced</PackageId>
+    <Title>Ranvier.Plume</Title>
+    <Description>The state of a text editor as a fold over a log of edits, on Ranvier: an immutable rope, change sets with position mapping, selections, transactions, facets, state fields, compartments, history, commands and keymaps. No DOM dependency.</Description>
+    <PackageTags>editor;text;rope;ranvier;reactive;fsharp</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.0.0.0</AssemblyVersion>
+    <RanvierAotClean>true</RanvierAotClean>
+    <RanvierExactSiblingVersions>true</RanvierExactSiblingVersions>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="LineScan.fs" />
+    <Compile Include="Text.fs" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="licenses/Ranvier.Plume/" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" Version="5.3.0" />
+    <PackageReference Include="Ranvier$(RanvierPackageSuffix)" Version="$(RanvierVersion)" />
+    <PackageReference Include="Ranvier.Keyboard" Version="$(RanvierKeyboardVersion)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RanvierTrace)' == 'true'">
+    <AssemblyMetadata Include="RanvierTrace" Value="true" />
+  </ItemGroup>
+</Project>
