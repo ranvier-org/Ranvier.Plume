@@ -398,6 +398,48 @@ let editorTests =
                     Expect.equal a.Selection.Value.Main.Head 2 "and gets back the selection it had before the edit"
                     Expect.isFalse (Editor.undo a) "nothing left")
 
+            testCase "an edit and a selection in one batch leave every editor on the document's text"
+            <| fun () ->
+                withGraph (fun _ ->
+                    let document = Document.create (Text.ofString "abc")
+                    let a = Editor.create document []
+                    let b = Editor.create document []
+
+                    Api.batch (fun () ->
+                        a.Dispatch [ insert 0 "x" ]
+                        a.Dispatch [ Tx.selection (EditorSelection.single 2 2) ])
+
+                    Expect.isTrue (obj.ReferenceEquals (b.State.Value.Doc, document.Text.Value)) "the other editor"
+                    Expect.isTrue (obj.ReferenceEquals (a.State.Value.Doc, document.Text.Value)) "the editor that made them")
+
+            testCase "a fold that fails is taken up again from where it started"
+            <| fun () ->
+                withGraph (fun _ ->
+                    let failing = ref true
+
+                    let fragile =
+                        StateField.define
+                            {
+                                Create = fun _ -> 0
+                                Update =
+                                    fun value transaction ->
+                                        if failing.Value then
+                                            failing.Value <- false
+                                            failwith "once"
+                                        elif transaction.DocChanged then
+                                            value + 1
+                                        else
+                                            value
+                            }
+
+                    let document = Document.create (Text.ofString "abc")
+                    let editor = Editor.create document [ StateField.extension fragile ]
+                    document.Dispatch [ insert 0 "x" ]
+                    Expect.throws (fun () -> editor.State.Value |> ignore) "the first fold fails"
+                    document.Dispatch [ insert 0 "y" ]
+                    Expect.equal (Text.toString editor.State.Value.Doc) "yxabc" "the next fold takes both transactions"
+                    Expect.equal (EditorState.field fragile editor.State.Value) 2 "and the field sees both")
+
             testCase "read-only drops user edits"
             <| fun () ->
                 withGraph (fun _ ->

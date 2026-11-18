@@ -397,7 +397,8 @@ module internal Surface =
                         if not (isNull surface.Root) then
                             surface.Root.focus ()
                 ScrollTo = scrollTo
-                ScrollBy = fun delta -> scrollTo (scrollTarget.Peek + delta)
+                // From where the view is: a target beyond a document that has shrunk counts as its end.
+                ScrollBy = fun delta -> scrollTo (Math.Clamp (scrollTarget.Peek, 0.0, limit ()) + delta)
                 PosAtCoords =
                     fun x y ->
                         Api.untrack (fun () ->
@@ -446,7 +447,11 @@ module internal Surface =
         Api.createEffect (fun () -> pluginValues.Value |> ignore)
 
         mounted.AddOrUpdate (editor, surface)
-        ctx.OnCleanup (fun () -> mounted.Remove editor |> ignore)
+        // A second view of the editor may have taken the entry since.
+        ctx.OnCleanup (fun () ->
+            match mounted.TryGetValue editor with
+            | true, held when obj.ReferenceEquals (held, surface) -> mounted.Remove editor |> ignore
+            | _ -> ())
         surface
 
 module internal Handlers =

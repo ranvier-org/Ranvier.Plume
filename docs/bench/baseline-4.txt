@@ -1,0 +1,25 @@
+Editor showcase --bench
+  window     1280 x 800 CSS px asked for, 1280 x 800 device px (Window.PixelSize), created hidden
+  compositor GPU compositing True (Window.IsGpuComposited), GPU frame pipeline False (Window.GpuFramePipeline)
+  text view  713.000 CSS px high (clientHeight), 49 row elements, character advance 7.697 CSS px (64 characters measured with getBoundingClientRect)
+  styles     35 Ranvier.Css classes on the page, each with a rule in the constructed sheet the document adopts (254 rules read back from the engine, 30 classes recorded)
+  late rule  a class applied after the sheet was filled reached the engine through insertRule (3 rules added, 1 of them an @property registration)
+  workloads  'lines x3' scrolls 3 line(s) a frame, '7 px' scrolls 7 CSS px a frame, 'typing' inserts one character a frame at the caret;
+             all on the 1,000,000-line file, 240 timed frames after 30 untimed ones
+  dispatch   Stopwatch around the workload's call: Editor.ScrollBy or Editor.Insert, which change plain fields
+  app ms     Stopwatch around State.Frame: Editor.Sync in one Api.batch, then Api.flush, then the scrollTop write: the row effects, their DOM writes and the layout that write forces
+  turn ms    Stopwatch around Window.Step(timeout = 0) after it: events, layout, paint and present of a hidden window, which no display paces
+  rows       rows whose content Editor.Sync wrote in the frame (Editor.LastRebound), mean over the timed frames
+
+  workload   recycling  cache  layer   rows/frame   dispatch ms mean  median     p95    app ms mean  median     p95   turn ms mean  median     p95   total mean
+  lines x3   on         on     on          3.2         0.001   0.001   0.003         0.747   0.653   0.929         0.832   0.470   2.810       1.581
+  lines x3   off        on     on         49.0         0.002   0.002   0.004         3.777   3.613   4.818         3.635   4.014   5.589       7.414
+  lines x3   on         off    on          3.2         0.000   0.000   0.001         0.618   0.565   1.021         0.848   0.515   2.873       1.466
+  lines x3   off        off    on         49.0         0.002   0.002   0.002         4.669   4.469   5.992         4.555   4.818   6.189       9.226
+  lines x3   on         on     off         3.2         0.000   0.000   0.001         0.621   0.590   0.927         0.878   0.544   2.703       1.499
+  7 px       on         on     on          0.3         0.001   0.000   0.001         0.345   0.293   0.601         0.521   0.341   2.136       0.867
+  7 px       on         on     off         0.3         0.000   0.000   0.001         0.273   0.221   0.485         0.485   0.320   2.019       0.759
+  typing     on         on     on          1.0         0.001   0.001   0.002         0.136   0.119   0.257         1.021   0.832   2.080       1.159
+  typing     on         off    on          1.0         0.001   0.001   0.002         0.142   0.122   0.255         1.124   0.926   2.210       1.268
+
+One run on one machine. Compare two runs only when both came from this benchmark at the same window size.

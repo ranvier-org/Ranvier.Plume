@@ -278,6 +278,92 @@ let tests =
                     Expect.equal mounted.View.ScrollTop.Value (1000.0 * 20.0 - 800.0 + 40.0) "clamped to the scroll range"
                     Expect.equal mounted.View.Viewport.Value.LastLine 999 "the last line is shown")
 
+            testCase "an edit, a read of the view and a selection in one batch reach the row"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let editor = mounted.Editor
+                    let line = Text.line 3 editor.Text.Value
+
+                    mounted.Run (fun () ->
+                        Api.batch (fun () ->
+                            editor.Dispatch [ insert line.To "!" ]
+                            // The read lays a window out between the two transactions.
+                            mounted.View.Viewport.Value |> ignore
+                            editor.Dispatch [ Tx.selection (EditorSelection.single 0 0) ]))
+
+                    mounted.Step ()
+                    Expect.equal (textOf mounted.Rows[3]) "line 3!" "the row shows the edit")
+
+            testCase "rows stay on the sheet whatever the line height"
+            <| fun () ->
+                let state =
+                    EditorState.create
+                        {
+                            Doc = Text.ofLines (manyLines 20_000)
+                            Selection = ValueNone
+                            Extensions = []
+                        }
+
+                let update: Update =
+                    {
+                        StartState = state
+                        State = state
+                        Transactions = Array.empty
+                        Changes = ChangeSet.empty state.Doc.Length
+                        Effects = Array.empty
+                    }
+
+                let config = RowConfig (Array.empty, Array.empty, ValueNone, true, true)
+                let markup = MarkupCache (Theme.dark, 16)
+
+                for lineHeight in [ 20.0; 24.0; 40.0 ] do
+                    let mutable previous = ValueNone
+                    let mutable line = 15_000
+
+                    // Scrolling up by 37 lines at a time crosses the anchor's reach many times.
+                    while line > 0 do
+                        let window = Rows.compute previous update config (float line * lineHeight) 800.0 lineHeight 6 700 markup (ref 0L)
+                        Expect.isGreaterThanOrEqual (Rows.Lead + window.Top - float window.Anchor * lineHeight) 0.0 "the scroll offset is positive"
+                        Expect.isGreaterThanOrEqual (float (window.Start - window.Anchor) * lineHeight + Rows.Lead) 0.0 "the first row is on the sheet"
+                        Expect.isLessThanOrEqual (float (window.Start + window.Pool - window.Anchor) * lineHeight + Rows.Lead) Rows.SheetHeight "the last row is on the sheet"
+                        previous <- ValueSome window
+                        line <- line - 37
+
+            testCase "reconfiguring another compartment leaves the plugins and the rows alone"
+            <| fun () ->
+                let log = ResizeArray<string> ()
+                let tabs = Compartment.create ()
+
+                let plugin =
+                    ViewPlugin.define (fun _ ->
+                        log.Add "created"
+                        Api.onCleanup (fun () -> log.Add "disposed")
+                        0)
+
+                withView (manyLines 100) (tabs.Of (EditorState.tabSize.Of 2) :: ViewPlugin.extension plugin :: standard) 800 (fun mounted ->
+                    let before = mounted.View.RowsWritten ()
+                    mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.effect (tabs.Reconfigure (EditorState.tabSize.Of 8)) ])
+                    mounted.Step ()
+                    Expect.sequenceEqual log [ "created" ] "the plugin stays"
+                    Expect.equal (mounted.View.RowsWritten () - before) 0L "no row is computed again"
+                    Expect.equal (shown mounted "[data-pm~=cursor]").Length 1 "the cursor is still drawn")
+
+            testCase "scrolling after the document shrank starts from where the view is"
+            <| fun () ->
+                withView (manyLines 1000) standard 800 (fun mounted ->
+                    let view = mounted.View
+                    let editor = mounted.Editor
+                    mounted.Run (fun () -> view.ScrollTo 15000.0)
+                    mounted.Step ()
+                    let from = (Text.line 100 editor.Text.Value).From
+                    mounted.Run (fun () -> editor.Dispatch [ Tx.change { From = from; To = Text.length editor.Text.Value; Insert = Text.empty } ])
+                    mounted.Step ()
+                    let top = view.ScrollTop.Value
+                    Expect.equal top (101.0 * 20.0 - 800.0 + 40.0) "the view is at the end of the shorter document"
+                    mounted.Run (fun () -> view.ScrollBy -100.0)
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value (top - 100.0) "the first request moves it")
+
             testCase "a compartment adds and removes a gutter"
             <| fun () ->
                 let numbers = Compartment.create ()

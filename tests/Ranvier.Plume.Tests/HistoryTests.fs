@@ -187,6 +187,46 @@ let tests =
                 Expect.equal (HistoryState.undoDepth sim.History) 0 "no item left"
                 Expect.isNone (undo sim) "undo"
 
+            testCase "edits of one item that cancel leave no item"
+            <| fun () ->
+                let typed =
+                    start History.defaults "hello"
+                    |> step (typeAt 5 "!")
+                    |> wait 4000L
+                    |> step (typeAt 6 "a")
+                    |> wait 100L
+                    |> step [ Tx.change { From = 6; To = 7; Insert = Text.empty }; Tx.selection (EditorSelection.single 6 6); Tx.userEvent "delete.backward" ]
+
+                Expect.equal (text typed) "hello!" "typed and deleted"
+                Expect.equal (HistoryState.undoDepth typed.History) 1 "the item that cancelled is gone"
+                let undone = (undo typed).Value
+                Expect.equal (text undone) "hello" "one undo reaches the item before it"
+                Expect.isNone (undo undone) "nothing is left"
+
+                let group = History.newGroupId ()
+                let origin = start History.defaults "hello"
+
+                let grouped =
+                    origin
+                    |> step [ insert 0 "x"; Tx.group group ]
+                    |> step [ Tx.change { From = 0; To = 1; Insert = Text.empty }; Tx.group group ]
+
+                Expect.equal (HistoryState.undoDepth grouped.History) 0 "a group that cancels is gone"
+                Expect.equal (HistoryState.position grouped.History) (HistoryState.position origin.History) "and the document is where it was"
+
+            testCase "a depth below one is one"
+            <| fun () ->
+                let sim =
+                    start { History.defaults with Depth = 0 } ""
+                    |> step (Tx.isolateHistory :: [ insert 0 "a" ])
+                    |> step (Tx.isolateHistory :: [ insert 1 "b" ])
+
+                Expect.equal (HistoryState.undoDepth sim.History) 1 "one item"
+                let undone = (undo sim).Value
+                Expect.equal (text undone) "a" "undone"
+                Expect.equal (HistoryState.undoDepth undone.History) 0 "none left"
+                Expect.isNone (undo undone) "nothing more to undo"
+
             testCase "depth bounds the stack"
             <| fun () ->
                 let mutable sim = start { History.defaults with Depth = 3 } ""

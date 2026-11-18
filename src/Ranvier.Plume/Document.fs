@@ -174,10 +174,16 @@ type Document internal (config: DocumentConfig) =
                 Annotations = annotations
             }
 
-        if transaction.DocChanged then
-            current <- ChangeSet.apply current transaction.Changes
+        // Both are computed before either is replaced, so a failure leaves the document as it was.
+        let nextText =
+            if transaction.DocChanged then
+                ChangeSet.apply current transaction.Changes
+            else
+                current
 
-        history <- HistoryState.apply transaction history
+        let nextHistory = HistoryState.apply transaction history
+        current <- nextText
+        history <- nextHistory
         log.Add transaction
         trim ()
         head.Value <- transaction.Seq

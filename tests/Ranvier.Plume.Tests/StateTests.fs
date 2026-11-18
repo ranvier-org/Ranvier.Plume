@@ -129,6 +129,55 @@ let tests =
                 Expect.equal (EditorState.tryField editCount replaced) ValueNone "a field removed is gone"
                 Expect.equal (EditorState.facet EditorState.tabSize replaced) 3 "new configuration"
 
+            testCase "a field is created before a field whose creation reads it"
+            <| fun () ->
+                let total = Facet.define (fun (values: int[]) -> Array.sum values)
+                let counter = StateField.define { Create = (fun _ -> 5); Update = fun value _ -> value }
+
+                let reader =
+                    StateField.define
+                        {
+                            Create = fun state -> EditorState.facet total state * 2
+                            Update = fun value _ -> value
+                        }
+
+                let state = stateOf "" [ StateField.extension reader; Facet.from total counter id ]
+                Expect.equal (EditorState.field reader state) 10 "whatever their order in the configuration"
+
+                let appended = stateOf "" [] |> run [ Tx.effect (EditorState.appendConfig.Of (Extension.many [ StateField.extension reader; Facet.from total counter id ])) ]
+                Expect.equal (EditorState.field reader appended) 10 "and when a transaction adds them"
+
+                let other: StateField<int> ref = ref Unchecked.defaultof<StateField<int>>
+
+                let first =
+                    StateField.define
+                        {
+                            Create = fun state -> EditorState.field other.Value state
+                            Update = fun value _ -> value
+                        }
+
+                other.Value <-
+                    StateField.define
+                        {
+                            Create = fun state -> EditorState.field first state
+                            Update = fun value _ -> value
+                        }
+
+                Expect.throwsT<InvalidOperationException>
+                    (fun () -> stateOf "" [ StateField.extension first; StateField.extension other.Value ] |> ignore)
+                    "two fields that read each other"
+
+            testCase "reconfiguring one compartment keeps the values of the facets it does not touch"
+            <| fun () ->
+                let all = Facet.define (fun (values: int[]) -> values)
+                let tabs = Compartment.create ()
+                let state = stateOf "" [ all.Of 1; all.Of 2; tabs.Of (EditorState.tabSize.Of 2) ]
+                let before = EditorState.facet all state
+                let after = EditorState.facet all (run [ Tx.effect (tabs.Reconfigure (EditorState.tabSize.Of 8)) ] state)
+                Expect.isTrue (obj.ReferenceEquals (before, after)) "the same value"
+                let grown = EditorState.facet all (run [ Tx.effect (EditorState.appendConfig.Of (all.Of 3)) ] state)
+                Expect.equal grown [| 1; 2; 3 |] "another input gives another value"
+
             testCase "selection follows changes"
             <| fun () ->
                 let state =

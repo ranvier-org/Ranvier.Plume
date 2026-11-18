@@ -290,11 +290,85 @@ module internal Rope =
         else
             node
 
+    /// One leaf of the lines of `a` and then of `b`. Line strings already read stay the same instances.
+    let private mergeLeaves (a: LeafData) (b: LeafData) : LeafData =
+        let count = a.LineCount + b.LineCount
+        let bytes = a.Utf8Bytes.Length
+        let utf8 = Array.zeroCreate<byte> (bytes + b.Utf8Bytes.Length)
+        Buffer.BlockCopy (a.Utf8Bytes, 0, utf8, 0, bytes)
+        Buffer.BlockCopy (b.Utf8Bytes, 0, utf8, bytes, b.Utf8Bytes.Length)
+        let byteOffsets = Array.zeroCreate<int> (count + 1)
+        let lineOffsets = Array.zeroCreate<int> (count + 1)
+        let endings = Array.zeroCreate<byte> count
+
+        for k = 0 to a.LineCount - 1 do
+            byteOffsets[k] <- a.ByteOffsets[k]
+            lineOffsets[k] <- a.LineOffsets[k]
+            endings[k] <- a.EndingKinds[k]
+
+        for k = 0 to b.LineCount do
+            byteOffsets[a.LineCount + k] <- b.ByteOffsets[k] + bytes
+            lineOffsets[a.LineCount + k] <- b.LineOffsets[k] + a.CharLength
+
+        for k = 0 to b.LineCount - 1 do
+            endings[a.LineCount + k] <- b.EndingKinds[k]
+
+        let mutable heldA: string[] = null
+        let mutable heldB: string[] = null
+
+        let aliveA =
+            not (isNull (box a.CachedLines))
+            && a.CachedLines.TryGetTarget &heldA
+            && not (isNull heldA)
+
+        let aliveB =
+            not (isNull (box b.CachedLines))
+            && b.CachedLines.TryGetTarget &heldB
+            && not (isNull heldB)
+
+        let cache =
+            if aliveA || aliveB then
+                let lines = Array.zeroCreate<string> count
+
+                if aliveA then
+                    Array.blit heldA 0 lines 0 a.LineCount
+
+                if aliveB then
+                    Array.blit heldB 0 lines a.LineCount b.LineCount
+
+                pinLeafArray lines
+                WeakReference<string[]> lines
+            else
+                Unchecked.defaultof<WeakReference<string[]>>
+
+        {
+            Utf8Bytes = utf8
+            ByteOffsets = byteOffsets
+            EndingKinds = endings
+            LineOffsets = lineOffsets
+            LineCount = count
+            CharLength = a.CharLength + b.CharLength
+            CachedLines = cache
+        }
+
+    let inline private fits (a: LeafData) (b: LeafData) : bool = a.LineCount + b.LineCount <= ChunkLines
+
     let rec concat (left: Node) (right: Node) : Node =
         let difference = left.Height - right.Height
 
         if abs difference <= 1 then
-            makeBranch left right
+            // Two small leaves that meet become one, so edits that add lines leave leaves that fill up.
+            match left, right with
+            | Leaf a, Leaf b when fits a b -> Leaf (mergeLeaves a b)
+            | Branch l, Leaf b ->
+                match l.Right with
+                | Leaf a when fits a b -> makeBranch l.Left (Leaf (mergeLeaves a b))
+                | _ -> makeBranch left right
+            | Leaf a, Branch r ->
+                match r.Left with
+                | Leaf b when fits a b -> makeBranch (Leaf (mergeLeaves a b)) r.Right
+                | _ -> makeBranch left right
+            | _ -> makeBranch left right
         elif difference > 1 then
             match left with
             | Branch l -> makeBranch l.Left (concat l.Right right) |> rebalance

@@ -88,30 +88,38 @@ type Editor internal (document: Document, extensions: Extension list, id: int) =
             let before =
                 match previous with
                 | ValueSome folded -> folded
-                | ValueNone ->
-                    let first = initial.Value
-                    initial.Value <- Unchecked.defaultof<Folded>
-                    first
+                | ValueNone -> initial.Value
 
-            if seq = before.At then
-                before
-            else
-                let transactions = document.Since before.At
-                let last = transactions.Length - 1
-                let mutable state = before.State
+            let result =
+                if seq = before.At then
+                    before
+                else
+                    let transactions = document.Since before.At
+                    // The last transaction that changes the document produces the document's current text.
+                    let mutable lastChange = -1
 
-                for index in 0..last do
-                    let transaction = seen transactions[index]
+                    for index in 0 .. transactions.Length - 1 do
+                        if transactions[index].DocChanged then
+                            lastChange <- index
 
-                    let doc =
-                        if not transaction.DocChanged then state.Doc
-                        elif index = last then document.Current
-                        else ChangeSet.apply state.Doc transaction.Changes
+                    let mutable state = before.State
 
-                    state <- EditorState.applyWithDoc doc transaction state
+                    for index in 0 .. transactions.Length - 1 do
+                        let transaction = seen transactions[index]
 
-                cursor.At <- seq
-                Folded (state, seq))
+                        let doc =
+                            if not transaction.DocChanged then state.Doc
+                            elif index = lastChange then document.Current
+                            else ChangeSet.apply state.Doc transaction.Changes
+
+                        state <- EditorState.applyWithDoc doc transaction state
+
+                    cursor.At <- seq
+                    Folded (state, seq)
+
+            // Released once a fold has a value: a fold that fails starts from it again.
+            initial.Value <- Unchecked.defaultof<Folded>
+            result)
 
     let state = Api.createMemo (fun (_: EditorState voption) -> fold.Value.State)
 

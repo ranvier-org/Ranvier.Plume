@@ -215,12 +215,14 @@ type internal RowWindow =
         /// The line at the sheet's lead.
         Anchor: int
         LineHeight: float
-        /// The lines of `Text` changed since the window before, or -1.
-        DirtyFrom: int
-        DirtyTo: int
-        /// True when the lines from `DirtyFrom` on moved.
-        Shifted: bool
-        /// The update the dirty lines were read from; compared by reference.
+        /// The number of this window among the windows of its view.
+        Generation: int64
+        /// The edits of the last windows, newest first: the window's number, the first and the last line changed in
+        /// that window's text, and whether the lines after them moved.
+        Edits: struct (int64 * int * int * bool) list
+        /// The number of the newest window whose edit `Edits` no longer holds; -1 when it holds them all.
+        EditsFloor: int64
+        /// The update the last edit was read from; compared by reference.
         Update: obj
         Markup: MarkupCache
         Written: int64 ref
@@ -236,6 +238,10 @@ module internal Rows =
     /// The height of the sheet: the lead on both sides of the anchor, and room for the row pool.
     [<Literal>]
     let SheetHeight = 36000.0
+
+    /// Edits a window carries for a lookup that skipped windows. A lookup further behind computes every row.
+    [<Literal>]
+    let MaxEdits = 8
 
     let private emptyHtml = UnsafeHtml.Trust ""
 
@@ -277,26 +283,43 @@ module internal Rows =
         let first = int (top / lineHeight)
         let start = max 0 (min (first - overscan) (total - pool))
 
+        // The rows above and below the first line shown stay on the sheet: the anchor moves before the lead or
+        // the room after it is used up, whatever the line height.
+        let reach =
+            max 1 (min rebase (min (int (Lead / lineHeight) - overscan - 2) (int ((SheetHeight - Lead) / lineHeight) - pool - 2)))
+
         let anchor =
             match previous with
-            | ValueSome before when abs (first - before.Anchor) <= rebase -> before.Anchor
+            | ValueSome before when abs (first - before.Anchor) <= reach -> before.Anchor
             | _ -> first
 
-        let dirty = [| -1; -1 |]
-        let mutable shifted = false
+        let generation =
+            match previous with
+            | ValueSome before -> before.Generation + 1L
+            | ValueNone -> 0L
 
-        match previous with
-        | ValueSome before when not (obj.ReferenceEquals (before.Update, update)) && update.DocChanged ->
-            dirty[0] <- Int32.MaxValue
+        // The lookup compares the window it last saw with this one, and may have skipped windows in between, so
+        // a window carries the edits of the windows before it.
+        let struct (edits, editsFloor) =
+            match previous with
+            | ValueSome before when not (obj.ReferenceEquals (before.Update, update)) && update.DocChanged ->
+                let dirty = [| Int32.MaxValue; -1 |]
 
-            ChangeDesc.iterChangedRanges
-                (fun _ _ fromB toB ->
-                    dirty[0] <- min dirty[0] (Text.lineAt fromB text).Number
-                    dirty[1] <- max dirty[1] (Text.lineAt toB text).Number)
-                (ChangeSet.desc update.Changes)
+                ChangeDesc.iterChangedRanges
+                    (fun _ _ fromB toB ->
+                        dirty[0] <- min dirty[0] (Text.lineAt fromB text).Number
+                        dirty[1] <- max dirty[1] (Text.lineAt toB text).Number)
+                    (ChangeSet.desc update.Changes)
 
-            shifted <- total <> before.Lines
-        | _ -> ()
+                let edit = struct (generation, dirty[0], dirty[1], total <> before.Lines)
+
+                if List.length before.Edits >= MaxEdits then
+                    let struct (dropped, _, _, _) = List.item (MaxEdits - 1) before.Edits
+                    struct (edit :: List.truncate (MaxEdits - 1) before.Edits, dropped)
+                else
+                    struct (edit :: before.Edits, before.EditsFloor)
+            | ValueSome before -> struct (before.Edits, before.EditsFloor)
+            | ValueNone -> struct ([], -1L)
 
         {
             Text = text
@@ -309,9 +332,9 @@ module internal Rows =
             Pool = pool
             Anchor = anchor
             LineHeight = lineHeight
-            DirtyFrom = dirty[0]
-            DirtyTo = dirty[1]
-            Shifted = shifted
+            Generation = generation
+            Edits = edits
+            EditsFloor = editsFloor
             Update = update
             Markup = markup
             Written = written
@@ -330,6 +353,7 @@ module internal Rows =
             || not (obj.ReferenceEquals (before.Config, next.Config))
             || abs (next.Start - before.Start) >= pool
             || (not next.Config.Recycle && next.Start <> before.Start)
+            || before.Generation < next.EditsFloor
         then
             Seq.init pool id
         else
@@ -345,16 +369,18 @@ module internal Rows =
                 for line in next.Start .. before.Start - 1 do
                     slots.Add (slotOf line)
 
-            // Lines whose text changed, and the lines after them when lines were added or removed.
-            if next.DirtyFrom >= 0 then
-                let last =
-                    if next.Shifted then
-                        next.Start + pool - 1
-                    else
-                        min next.DirtyTo (next.Start + pool - 1)
+            // Lines whose text changed since the window the lookup saw, and the lines after them when lines were
+            // added or removed.
+            for struct (generation, from, to', shifted) in next.Edits do
+                if generation > before.Generation then
+                    let last =
+                        if shifted then
+                            next.Start + pool - 1
+                        else
+                            min to' (next.Start + pool - 1)
 
-                for line in max next.DirtyFrom next.Start .. last do
-                    slots.Add (slotOf line)
+                    for line in max from next.Start .. last do
+                        slots.Add (slotOf line)
 
             slots
 

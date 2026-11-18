@@ -55,6 +55,8 @@ and [<Sealed; AllowNullLiteral>] internal FacetSlot(facet: FacetBase, providers:
     member _.Providers = providers
     member _.Index = index
     member val Static: obj = null with get, set
+    /// The inputs `Static` was combined from.
+    member val Inputs: obj[] = null with get, set
 
 and [<Sealed; AllowNullLiteral>] internal FacetEntry(inputs: obj[], output: obj) =
     member _.Inputs = inputs
@@ -141,10 +143,38 @@ and [<Sealed>] EditorState internal (config: Configuration, doc: Text, selection
                 dynamic[slot.Index] <- entry
                 entry.Output
 
-    member internal _.FieldBoxed(field: FieldBase) : obj voption =
+    /// While the fields of a new state are created: 0 for a field still to create, 1 for one being created, 2 for
+    /// one that has its value. Null once every field has its value.
+    member val internal Pending: byte[] = null with get, set
+
+    /// Gives the field at `index` its value if the state is still creating its fields. A field whose creation
+    /// reads another field is created after it, whatever their order in the configuration.
+    member internal this.EnsureField(index: int) =
+        let pending = this.Pending
+
+        if not (isNull pending) && pending[index] <> 2uy then
+            if pending[index] = 1uy then
+                raise (InvalidOperationException "Two state fields read each other while they are created.")
+
+            pending[index] <- 1uy
+            fields[index] <- config.Fields[index].CreateBoxed this
+            pending[index] <- 2uy
+
+    /// Creates the fields `pending` marks as still to create.
+    member internal this.CreateFields(pending: byte[]) =
+        this.Pending <- pending
+
+        try
+            for index in 0 .. fields.Length - 1 do
+                this.EnsureField index
+        finally
+            this.Pending <- null
+
+    member internal this.FieldBoxed(field: FieldBase) : obj voption =
         let mutable index = 0
 
         if config.FieldIndex.TryGetValue (field.Id, &index) then
+            this.EnsureField index
             ValueSome fields[index]
         else
             ValueNone
@@ -185,7 +215,8 @@ type Compartment with
 module internal Configuration =
 
     /// The configuration of `root`, where `overrides` gives the content of compartments already reconfigured.
-    let resolve (root: Extension) (overrides: Dictionary<int, Extension>) : Configuration =
+    /// A facet whose constant inputs are those it had in `previous` keeps the value it had there.
+    let resolve (root: Extension) (overrides: Dictionary<int, Extension>) (previous: Configuration voption) : Configuration =
         let buckets = Array.init 5 (fun _ -> ResizeArray<Extension> ())
         let compartments = Dictionary<int, Extension> ()
         let seenFields = HashSet<int> ()
@@ -259,14 +290,32 @@ module internal Configuration =
             if constant then
                 let slot = FacetSlot (facet, inputs, -1)
 
+                let values =
+                    inputs
+                    |> Array.map (fun provider ->
+                        match provider with
+                        | StaticInput value -> value
+                        | ComputedInput _ -> null)
+
+                let kept =
+                    match previous with
+                    | ValueSome before ->
+                        match before.Facets.TryGetValue facet.Id with
+                        | true, held when
+                            held.Index < 0
+                            && held.Inputs.Length = values.Length
+                            && Array.forall2 (fun (a: obj) (b: obj) -> Object.Equals (a, b)) held.Inputs values
+                            ->
+                            ValueSome held.Static
+                        | _ -> ValueNone
+                    | ValueNone -> ValueNone
+
+                slot.Inputs <- values
+
                 slot.Static <-
-                    facet.CombineBoxed (
-                        inputs
-                        |> Array.map (fun provider ->
-                            match provider with
-                            | StaticInput value -> value
-                            | ComputedInput _ -> null)
-                    )
+                    match kept with
+                    | ValueSome value -> value
+                    | ValueNone -> facet.CombineBoxed values
 
                 facets[facet.Id] <- slot
             else
@@ -403,7 +452,7 @@ module EditorState =
             EditorSelection.asSingle clamped
 
     let create (config: EditorStateConfig) : EditorState =
-        let configuration = Configuration.resolve (Many config.Extensions) (Dictionary<int, Extension> ())
+        let configuration = Configuration.resolve (Many config.Extensions) (Dictionary<int, Extension> ()) ValueNone
         let fields = Array.zeroCreate<obj> configuration.Fields.Length
         let selection = ValueOption.defaultValue (EditorSelection.single 0 0) config.Selection
 
@@ -416,9 +465,7 @@ module EditorState =
                 let multiple = unbox<bool> (first.FacetBoxed allowMultipleSelections)
                 EditorState (configuration, config.Doc, normalise multiple config.Doc selection, fields, null)
 
-        for index in 0 .. fields.Length - 1 do
-            fields[index] <- configuration.Fields[index].CreateBoxed state
-
+        state.CreateFields (Array.zeroCreate fields.Length)
         state
 
     /// `state` after `transaction`, where `doc` is the text the transaction produces.
@@ -450,7 +497,7 @@ module EditorState =
 
         let next =
             if reconfigured then
-                Configuration.resolve root (if isNull overrides then config.Compartments else overrides)
+                Configuration.resolve root (if isNull overrides then config.Compartments else overrides) (ValueSome config)
             else
                 config
 
@@ -491,14 +538,19 @@ module EditorState =
                     let multiple = unbox<bool> (first.FacetBoxed allowMultipleSelections)
                     EditorState (next, doc, normalise multiple doc selection, fields, null)
 
+            // A field of the configuration before keeps its value; the others are created.
+            let pending = Array.zeroCreate<byte> fields.Length
+
             for index in 0 .. fields.Length - 1 do
                 let field = next.Fields[index]
 
-                fields[index] <-
-                    match state.FieldBoxed field with
-                    | ValueSome value -> field.UpdateBoxed (value, transaction)
-                    | ValueNone -> field.CreateBoxed result
+                match state.FieldBoxed field with
+                | ValueSome value ->
+                    fields[index] <- field.UpdateBoxed (value, transaction)
+                    pending[index] <- 2uy
+                | ValueNone -> ()
 
+            result.CreateFields pending
             result
 
     /// <c>state</c> after <c>transaction</c>.

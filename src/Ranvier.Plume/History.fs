@@ -7,7 +7,7 @@ open System.Threading
 [<NoEquality; NoComparison>]
 type HistoryConfig =
     {
-        /// The number of items that can be undone.
+        /// The number of items that can be undone; a number below 1 is taken as 1.
         Depth: int
         /// Milliseconds after which an edit starts a new item.
         NewGroupDelay: int64
@@ -189,7 +189,7 @@ module HistoryState =
 
     let empty (config: HistoryConfig) : HistoryState =
         {
-            Config = config
+            Config = { config with Depth = max 1 config.Depth }
             Done = HistoryStack.empty
             Undone = HistoryStack.empty
             Epoch = 0L
@@ -248,39 +248,52 @@ module HistoryState =
                         && state.Config.JoinToEvent transaction (isAdjacent top.Changes inverse)
 
                 if joins then
-                    ValueSome (
-                        HistoryStack.restore
-                            { top with
-                                Changes = ChangeSet.compose inverse top.Changes
-                                After = position
-                            }
-                            rest
-                    )
+                    let changes = ChangeSet.compose inverse top.Changes
+
+                    if ChangeSet.isEmpty changes then
+                        // The edits of the item cancel. The item goes, and the document is where it was before it.
+                        let below =
+                            match top.Mapped with
+                            | ValueSome mapping -> HistoryStack.addMapping mapping rest
+                            | ValueNone -> rest
+
+                        ValueSome (struct (below, top.Before))
+                    else
+                        ValueSome (
+                            struct (HistoryStack.restore
+                                        { top with
+                                            Changes = changes
+                                            After = position
+                                        }
+                                        rest,
+                                    position)
+                        )
                 else
                     ValueNone
             | ValueNone -> ValueNone
 
-        let stack =
+        let struct (stack, at) =
             match joined with
-            | ValueSome stack -> stack
+            | ValueSome result -> result
             | ValueNone ->
-                HistoryStack.push
-                    state.Config.Depth
-                    {
-                        Changes = inverse
-                        Mapped = ValueNone
-                        StartSelection = transaction.StartSelection
-                        Source = transaction.Source
-                        Before = state.Position
-                        After = position
-                        Group = group
-                    }
-                    state.Done
+                struct (HistoryStack.push
+                            state.Config.Depth
+                            {
+                                Changes = inverse
+                                Mapped = ValueNone
+                                StartSelection = transaction.StartSelection
+                                Source = transaction.Source
+                                Before = state.Position
+                                After = position
+                                Group = group
+                            }
+                            state.Done,
+                        position)
 
         { state with
             Done = stack
             Undone = HistoryStack.empty
-            Position = position
+            Position = at
             LastPosition = position
             PrevTime = (if isolated then noTime else time)
         }
@@ -311,39 +324,39 @@ module HistoryState =
 
     /// <c>state</c> after <c>transaction</c>.
     let apply (transaction: Transaction) (state: HistoryState) : HistoryState =
-        if not transaction.DocChanged then
-            // A selection set between two edits ends the item the first belongs to.
-            if transaction.Selection.IsSome && state.PrevTime <> noTime then
-                { state with PrevTime = noTime }
-            else
-                state
-        else
-            match Transaction.annotation History.undoOp transaction with
-            | ValueSome true ->
-                match HistoryStack.tryPopMapped state.Done with
-                | ValueSome (struct (popped, rest)) ->
-                    { state with
-                        Done = rest
-                        Undone = HistoryStack.restore (reverse transaction popped) state.Undone
-                        Position = popped.Before
-                        PrevTime = noTime
-                    }
-                | ValueNone -> leaveOut transaction state
-            | ValueSome false ->
-                match HistoryStack.tryPopMapped state.Undone with
-                | ValueSome (struct (popped, rest)) ->
-                    { state with
-                        Done = HistoryStack.push state.Config.Depth (reverse transaction popped) state.Done
-                        Undone = rest
-                        Position = popped.After
-                        PrevTime = noTime
-                    }
-                | ValueNone -> leaveOut transaction state
-            | ValueNone ->
-                if Transaction.annotation Annotations.addToHistory transaction = ValueSome false then
-                    leaveOut transaction state
+        // An undo or a redo takes its item whether or not it changes the document.
+        match Transaction.annotation History.undoOp transaction with
+        | ValueSome true ->
+            match HistoryStack.tryPopMapped state.Done with
+            | ValueSome (struct (popped, rest)) ->
+                { state with
+                    Done = rest
+                    Undone = HistoryStack.restore (reverse transaction popped) state.Undone
+                    Position = popped.Before
+                    PrevTime = noTime
+                }
+            | ValueNone -> if transaction.DocChanged then leaveOut transaction state else state
+        | ValueSome false ->
+            match HistoryStack.tryPopMapped state.Undone with
+            | ValueSome (struct (popped, rest)) ->
+                { state with
+                    Done = HistoryStack.push state.Config.Depth (reverse transaction popped) state.Done
+                    Undone = rest
+                    Position = popped.After
+                    PrevTime = noTime
+                }
+            | ValueNone -> if transaction.DocChanged then leaveOut transaction state else state
+        | ValueNone ->
+            if not transaction.DocChanged then
+                // A selection set between two edits ends the item the first belongs to.
+                if transaction.Selection.IsSome && state.PrevTime <> noTime then
+                    { state with PrevTime = noTime }
                 else
-                    record transaction state
+                    state
+            elif Transaction.annotation Annotations.addToHistory transaction = ValueSome false then
+                leaveOut transaction state
+            else
+                record transaction state
 
     let private spec (isUndo: bool) (source: int) (selection: EditorSelection) (stack: HistoryStack) : TxSpec list voption =
         match HistoryStack.tryPop stack with

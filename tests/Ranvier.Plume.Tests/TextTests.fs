@@ -145,6 +145,36 @@ let tests =
                 Expect.equal (Text.iterLines 2 4 text |> List.ofSeq) [ "line number 2"; "line number 3" ] "iterLines"
                 Expect.equal (String.Concat (Text.iterRange 3 300 text)) (source.Substring (3, 297)) "iterRange"
 
+            testCase "lines added one edit at a time fill their leaves"
+            <| fun () ->
+                let rec leaves (node: Node) : int =
+                    match node with
+                    | Leaf _ -> 1
+                    | Branch branch -> leaves branch.Left + leaves branch.Right
+
+                let mutable text = Text.ofString "first"
+                let expected = StringBuilder "first"
+
+                for index in 1..2000 do
+                    let line = "\nline " + string index
+                    text <- Text.replace (Text.length text) (Text.length text) (Text.ofString line) text
+                    expected.Append line |> ignore
+
+                expectText (expected.ToString ()) text "appended"
+                Expect.isLessThan (leaves text.Root) 64 "a leaf holds 32 lines or more on average"
+
+                // The same in the middle of a text: each new line splits a leaf, and the parts join their neighbours.
+                let mutable middle = Text.ofLines (Seq.init 4000 (fun index -> "row " + string index))
+                let at = (Text.line 2000 middle).From
+
+                for _ in 1..2000 do
+                    middle <- Text.replace at at (Text.ofString "x\n") middle
+
+                Expect.equal (Text.lines middle) 6000 "lines"
+                Expect.isLessThan (leaves middle.Root) 190 "a leaf holds 32 lines or more on average"
+                Expect.equal (Text.lineText 2000 middle) "x" "the first inserted line"
+                Expect.equal (Text.lineText 4000 middle) "row 2000" "the line the insertions pushed down"
+
             testCase "one-character texts are shared"
             <| fun () -> Expect.isTrue (obj.ReferenceEquals (Text.ofString "x", Text.ofString "x")) "x"
 
