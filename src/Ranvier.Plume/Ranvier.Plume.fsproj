@@ -29,6 +29,7 @@
     <Compile Include="History.fs" />
     <Compile Include="Document.fs" />
     <Compile Include="Editor.fs" />
+    <Compile Include="Columns.fs" />
     <Compile Include="Commands.fs" />
     <Compile Include="Keymap.fs" />
     <Compile Include="Language.fs" />

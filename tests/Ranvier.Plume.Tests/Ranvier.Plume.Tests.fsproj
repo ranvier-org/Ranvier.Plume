@@ -18,6 +18,7 @@
         <Compile Include="HistoryTests.fs" />
         <Compile Include="EditorTests.fs" />
         <Compile Include="CommandTests.fs" />
+        <Compile Include="ColumnTests.fs" />
         <Compile Include="PropertyTests.fs" />
         <Compile Include="Main.fs" />
     </ItemGroup>

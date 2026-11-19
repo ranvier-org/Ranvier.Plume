@@ -9,7 +9,7 @@ type SelectionRange =
     {
         Anchor: int
         Head: int
-        /// The column vertical motion aims for, or -1.
+        /// The column of the grid (<c>Columns</c>) that vertical motion aims for, or -1.
         GoalColumn: int
         /// The side of its position a cursor belongs to.
         Assoc: Assoc

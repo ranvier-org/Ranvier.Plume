@@ -21,7 +21,6 @@
   <ItemGroup>
     <Compile Include="Styling.fs" />
     <Compile Include="Types.fs" />
-    <Compile Include="Columns.fs" />
     <Compile Include="Rows.fs" />
     <Compile Include="Features.fs" />
     <Compile Include="Component.fs" />

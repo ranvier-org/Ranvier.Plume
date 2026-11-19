@@ -120,22 +120,29 @@ module Commands =
             else
                 struct (step state.Doc range.Head, -1))
 
+    /// A vertical motion keeps a column of the grid (`Columns`): the place a reader sees, where a tab reaches to
+    /// its stop and a wide character takes two columns.
     let private vertical (extend: bool) (lines: EditorState -> int) : StateCommand =
         move extend (fun state range ->
             let doc = state.Doc
+            let tabSize = EditorState.facet EditorState.tabSize state
             let line = Text.lineAt range.Head doc
 
             let goal =
                 if range.GoalColumn >= 0 then
                     range.GoalColumn
                 else
-                    column line range.Head
+                    Columns.columnOf line.Text tabSize (column line range.Head)
 
             let target = line.Number + lines state
 
-            if target < 0 then struct (0, goal)
-            elif target >= doc.Lines then struct (doc.Length, goal)
-            else struct (Text.offsetOf target goal doc, goal))
+            if target < 0 then
+                struct (0, goal)
+            elif target >= doc.Lines then
+                struct (doc.Length, goal)
+            else
+                let onto = Text.line target doc
+                struct (onto.From + Columns.offsetAt onto.Text tabSize (float goal), goal))
 
     let private lineEdge (extend: bool) (toEnd: bool) : StateCommand =
         move extend (fun state range ->

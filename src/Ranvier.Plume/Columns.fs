@@ -1,17 +1,29 @@
-namespace Ranvier.Plume.View
+namespace Ranvier.Plume
 
 open System
 open Ranvier.Keyboard
 
-/// The column grid of a view. A column is one character advance wide, and every character takes a whole number of
+/// The column grid of a line. A column is one character advance wide, and every character takes a whole number of
 /// columns: a tab reaches to the next multiple of the tab size, a wide character takes two, and a letter with its
-/// combining marks is one character. The markup of a line draws it by the same rule (`Html.columnsInto`), so the
-/// place of a position is a multiplication.
-module internal Columns =
+/// combining marks is one character. Moving up and down a line keeps a column of this grid, and a view draws a
+/// line by it, so the place of a position is a multiplication.
+[<RequireQualifiedAccess>]
+module Columns =
 
     /// True when every UTF-16 unit of the line is a character of one column: printable ASCII and nothing else.
     let isPlain (line: string) : bool =
+#if FABLE_COMPILER
+        let mutable plain = true
+        let mutable index = 0
+
+        while plain && index < line.Length do
+            plain <- line[index] >= ' ' && line[index] <= '~'
+            index <- index + 1
+
+        plain
+#else
         line.AsSpan().IndexOfAnyExceptInRange (' ', '~') < 0
+#endif
 
     // The characters drawn two columns wide, as ranges of code points: East Asian wide and fullwidth characters,
     // and the blocks of emoji.
@@ -50,7 +62,7 @@ module internal Columns =
 
         found
 
-    /// The length in UTF-16 units of the character that starts at `at`: a grapheme cluster.
+    /// The length in UTF-16 units of the character that starts at <c>at</c>: a grapheme cluster.
     let clusterLength (line: string) (at: int) : int =
         // A unit of ASCII that no combining mark follows is a character by itself.
         if line[at] < '\u0080' && (at + 1 = line.Length || line[at + 1] < '̀') then
@@ -58,8 +70,9 @@ module internal Columns =
         else
             max 1 (Grapheme.nextClusterLength line at)
 
-    /// The columns of the character of `length` units at `at`, when it starts at column `column`.
-    let columnsOf (line: string) (at: int) (length: int) (column: int) (tabSize: int) : int =
+    /// The columns of the character of <c>length</c> units at <c>at</c>, when it starts at column
+    /// <c>column</c>. A tab size below 1 is taken as 1.
+    let clusterColumns (line: string) (at: int) (length: int) (column: int) (tabSize: int) : int =
         let first = line[at]
 
         if first = '\t' then
@@ -74,8 +87,8 @@ module internal Columns =
         else
             1
 
-    /// The column where the character holding unit `offset` of `line` starts; the line's width for an offset at
-    /// or past its end.
+    /// The column where the character holding unit <c>offset</c> of the line starts; the line's width for an
+    /// offset at or past its end.
     let columnOf (line: string) (tabSize: int) (offset: int) : int =
         if isPlain line then
             min offset line.Length
@@ -90,12 +103,12 @@ module internal Columns =
                 if offset < at + length then
                     looking <- false
                 else
-                    column <- column + columnsOf line at length column tabSize
+                    column <- column + clusterColumns line at length column tabSize
                     at <- at + length
 
             column
 
-    /// The columns the character at `offset` takes; one at or past the line's end.
+    /// The columns the character at <c>offset</c> takes; one at or past the line's end.
     let widthAt (line: string) (tabSize: int) (offset: int) : int =
         if offset >= line.Length || isPlain line then
             1
@@ -107,7 +120,7 @@ module internal Columns =
 
             while looking && at < line.Length do
                 let length = clusterLength line at
-                let columns = columnsOf line at length column tabSize
+                let columns = clusterColumns line at length column tabSize
 
                 if offset < at + length then
                     width <- columns
@@ -118,7 +131,8 @@ module internal Columns =
 
             width
 
-    /// The offset of the character boundary nearest to `column` columns from the line's start.
+    /// The offset in the line of the character boundary nearest to <c>column</c> columns from the line's start.
+    /// A column at a character's middle goes after the character.
     let offsetAt (line: string) (tabSize: int) (column: float) : int =
         if isPlain line then
             Math.Clamp (int (Math.Round column), 0, line.Length)
@@ -129,7 +143,7 @@ module internal Columns =
 
             while looking && at < line.Length do
                 let length = clusterLength line at
-                let columns = columnsOf line at length start tabSize
+                let columns = clusterColumns line at length start tabSize
 
                 // Left of the character's middle, the boundary before it is the nearer one.
                 if column < float start + float columns / 2.0 then

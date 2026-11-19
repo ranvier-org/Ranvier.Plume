@@ -995,61 +995,12 @@ let tests =
                     Expect.equal (lineOf mounted.Rows[0]).childNodes.length 2u "a text node and a comment")
         ]
 
-/// The column grid, without a window.
+/// The markup of a line on the column grid, without a window.
 [<Tests>]
-let columnTests =
+let markupTests =
     testList
-        "Columns"
+        "Markup"
         [
-            testCase "a plain line has a column for each character"
-            <| fun () ->
-                Expect.equal (Columns.columnOf "hello" 4 3) 3 "column"
-                Expect.equal (Columns.columnOf "hello" 4 9) 5 "past the end is the line's width"
-                Expect.equal (Columns.widthAt "hello" 4 2) 1 "width"
-                Expect.equal (Columns.offsetAt "hello" 4 2.4) 2 "nearest boundary"
-                Expect.equal (Columns.offsetAt "hello" 4 2.6) 3 "nearest boundary, above the half"
-                Expect.equal (Columns.offsetAt "hello" 4 -3.0) 0 "left of the line"
-                Expect.equal (Columns.offsetAt "hello" 4 80.0) 5 "right of the line"
-
-            testCase "a tab reaches to the next multiple of the tab size"
-            <| fun () ->
-                Expect.equal [ for offset in 0..3 -> Columns.columnOf "\txx" 4 offset ] [ 0; 4; 5; 6 ] "a tab at the start"
-                Expect.equal [ for offset in 0..5 -> Columns.columnOf "ab\txx" 4 offset ] [ 0; 1; 2; 4; 5; 6 ] "a tab after two characters"
-                Expect.equal (Columns.columnOf "abcd\tx" 4 5) 8 "a tab at a stop takes a whole stop"
-                Expect.equal (Columns.columnOf "\t\tx" 8 2) 16 "two tabs of eight"
-                Expect.equal (Columns.widthAt "ab\tx" 4 2) 2 "the tab's own width"
-                Expect.equal (Columns.widthAt "\tx" 2 0) 2 "a tab of two"
-
-            testCase "a wide character takes two columns, and a combined one is one character"
-            <| fun () ->
-                Expect.equal [ for offset in 0..3 -> Columns.columnOf "漢字x" 4 offset ] [ 0; 2; 4; 5 ] "ideographs"
-                Expect.equal [ for offset in 0..3 -> Columns.columnOf "😀x" 4 offset ] [ 0; 0; 2; 3 ] "a unit inside a surrogate pair is at the pair's start"
-                Expect.equal [ for offset in 0..3 -> Columns.columnOf "e\u0301x" 4 offset ] [ 0; 0; 1; 2 ] "a combining mark belongs to its letter"
-                Expect.equal (Columns.columnOf "éλx" 4 2) 2 "narrow letters outside ASCII take one"
-                Expect.equal (Columns.widthAt "漢x" 4 0, Columns.widthAt "😀x" 4 0, Columns.widthAt "éx" 4 0) (2, 2, 1) "widths"
-                Expect.equal (Columns.columnOf "漢\tx" 4 2) 4 "a tab after a wide character"
-
-            testCase "a column finds the nearest character boundary"
-            <| fun () ->
-                Expect.equal [ for column in [ 0.0; 1.9; 2.1; 3.9; 4.4; 4.6 ] -> Columns.offsetAt "\txx" 4 column ] [ 0; 0; 1; 1; 1; 2 ] "inside and after a tab"
-                Expect.equal [ for column in [ 0.9; 1.1; 2.9; 3.1; 4.6 ] -> Columns.offsetAt "漢字x" 4 column ] [ 0; 1; 1; 2; 3 ] "wide characters"
-                Expect.equal (Columns.offsetAt "😀x" 4 1.2) 2 "never inside a surrogate pair"
-
-            testCase "every character boundary is found again from its column"
-            <| fun () ->
-                let pieces = [| "a"; " "; "\t"; "漢"; "😀"; "e\u0301"; "é"; "x" |]
-                let random = Random 7
-
-                for _ in 1..500 do
-                    let line = String.Concat [ for _ in 1 .. random.Next (0, 12) -> pieces[random.Next pieces.Length] ]
-                    let tabSize = [| 2; 4; 8 |][random.Next 3]
-                    let mutable at = 0
-
-                    while at <= line.Length do
-                        let column = Columns.columnOf line tabSize at
-                        Expect.equal (Columns.offsetAt line tabSize (float column)) at (sprintf "offset %d of a line of %d units at tab size %d" at line.Length tabSize)
-                        at <- if at < line.Length then at + Ranvier.Keyboard.Grapheme.nextClusterLength line at else at + 1
-
             testCase "the markup of a line draws a tab as spaces and boxes a character outside ASCII"
             <| fun () ->
                 let cache = MarkupCache (EditorView.defaults.Theme, 16)

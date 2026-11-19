@@ -51,14 +51,14 @@ module internal Html =
 
     /// Appends the markup of the characters of `line` from `from` up to `to'`, the first of them standing at
     /// column `column`, and gives the column after the last. A tab is spaces to its stop, a character of ASCII is
-    /// itself, and any other is in an element as wide as its columns (`Columns`).
+    /// itself, and any other is in an element as wide as its columns (`Columns`, in the state package).
     let columnsInto (builder: StringBuilder) (line: string) (from: int) (to': int) (column: int) (tabSize: int) : int =
         let mutable at = from
         let mutable column = column
 
         while at < to' do
             let length = min (Columns.clusterLength line at) (to' - at)
-            let columns = Columns.columnsOf line at length column tabSize
+            let columns = Columns.clusterColumns line at length column tabSize
             let first = line[at]
 
             if first = '\t' then

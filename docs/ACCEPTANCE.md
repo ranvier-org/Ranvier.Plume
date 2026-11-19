@@ -45,12 +45,12 @@ stays what it was.
 | 5 History and `Document` | 4 of 4 | `baff5e2`, `0f2937f` | 17 `History`, 10 `Document` and 1 `Retention` test |
 | 6 `Editor` | 3 of 3 | `baff5e2` | 14 `Editor` tests |
 | 7 Commands, keymaps, language | 3 of 3 | `71e619d` | 12 `Commands`, 4 `Keymap` and 2 `Language` tests |
-| 8 `Ranvier.Plume.View` | 4 of 4, step 1 late | `334bc51`, `7b2e860` | 41 view tests in hidden windows (34 at the end of phase 1) and 6 of the column grid; each case of the step 2 smoke test has a test. No spike was made (step 1); its two questions are tests written after the view |
+| 8 `Ranvier.Plume.View` | 4 of 4, step 1 late | `334bc51`, `7b2e860` | 41 view tests in hidden windows (34 at the end of phase 1) and 1 of a line's markup; each case of the step 2 smoke test has a test. No spike was made (step 1); its two questions are tests written after the view |
 | 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture `sample-shot.png` (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
 | 10 SIMD checks | 3 of 3 | `26dea99` | 7.3 below: the vectorised scan is faster and is kept; `--apply` is measured. Step 3 named a commit of its own; keeping the scan changed no code, so the decision is recorded with the acceptance commit |
 | 11 Acceptance | 5 of 5 | `26dea99`, `dd00fc9`, `7b2e860`, `8360aad` | 7.1: all nine rows pass. 7.2: 279 bytes. Step 3: the profile and the fix, in 7.1. Step 4: this file, the dossier's status line and decision 17. Step 5: the gate, `rfs check`, and two fresh-context reviews with their findings fixed |
 
-The state tests sum to 123 and run on `net10.0`, on `net8.0`, and on the traced core on both.
+The state tests sum to 136, with 8 of vertical motion and 5 of the column grid added after phase 1, and run on `net10.0`, on `net8.0`, and on the traced core on both.
 
 `dotnet fsi --exec build.fsx -- acceptance` recomputes the verdicts of section 7 without this file's prose: 7.1
 from the ten recorded runs in `bench/` by the rule of dossier 7.1, 7.2 and 7.3 from runs it makes, the plan's
@@ -617,10 +617,10 @@ unless they say otherwise):
   page as a patch in 1.1 s with the tour still stopped; an edit that does not compile was reported as an error
   and left the page as it was; the revert was patched in; an edit to `Harness.fs` was evaluated (**measured
   here**, the host's own report of one run; the first frame came 1.4 s after the host started).
-- **Both frameworks.** The state package's 123 tests run on `net10.0` and on `net8.0`. The view's tests run on
+- **Both frameworks.** The state package's 136 tests run on `net10.0` and on `net8.0`. The view's tests run on
   `net10.0`, the only target of the native host package.
 - **The traced build.** `dotnet fsi --exec build.fsx -- traced` builds both libraries with `-p:RanvierTrace=true`
-  on both frameworks, with 0 warnings, and runs the state tests on them: 123 pass on each. It works in a copy of
+  on both frameworks, with 0 warnings, and runs the state tests on them: 136 pass on each. It works in a copy of
   the tree, because a traced restore in place would replace what the untraced build and `rfs` read. One test
   reads differently there: a traced graph's event log holds the payload of each event (**from source**,
   `Ranvier/src/Ranvier/Trace.fs`), so the text a document started with is never collected, and the retention
@@ -659,16 +659,17 @@ old rule (one column a unit) so that they compiled. All ten failed on an asserti
 - without a window: a tab's columns; a wide character's columns; the boundary nearest a column; the markup of a
   line.
 
-**The fix: one grid for the page and for the arithmetic** (`Columns.fs`). A column is one character advance. The
+**The fix: one grid for the page and for the arithmetic** (`Columns`, a module of the state package, where the
+tab size is). A column is one character advance. The
 markup of a line draws a tab as spaces to the next multiple of `EditorState.tabSize`, and a character outside
 ASCII in a box of one column or of two; a letter with its combining marks, or a surrogate pair, is one character.
 `CoordsAtPos`, `PosAtCoords`, the cursor and the selection count the same columns. A line of printable ASCII is
 drawn and placed as before. A change of the tab size draws the rows again.
 
-**Tests.** The view project has 47: 41 in hidden windows and 6 of the grid alone. One new test, of a tab size
-changed while the view is mounted, was written after the code it tests; it was then seen to fail with the tab
-size left out of the row configuration. One older test changed: it used the tab size as a facet no view reads,
-and uses the indent unit now.
+**Tests.** Thirteen were added with this fix: seven in hidden windows, five of the grid's arithmetic and one of a
+line's markup. One of them, of a tab size changed while the view is mounted, was written after the code it tests;
+it was then seen to fail with the tab size left out of the row configuration. One older test changed: it used the
+tab size as a facet no view reads, and uses the indent unit now.
 
 **Frame cost.** The sample's text is printable ASCII, so its markup is what it was. **Measured here:**
 `EditorShowcase --bench`, eight alternating pairs of the build before the change and the build with it, the order
@@ -683,13 +684,20 @@ a frame's total is at or below the earlier build's in eight of the nine rows, an
   and reaches into the next.
 - A line of many characters outside ASCII has an element for each of them. Its cost is not measured.
 - A control character other than a tab counts one column, whatever the page draws for it.
-- Moving up or down a line keeps the count of UTF-16 units, not the column. Between a line indented with a tab
-  and a line indented with spaces the cursor moves sideways.
 
-**Where it was verified.** Another session was editing the keymap, the README and the sample in this checkout
-while the gates ran, and for a time the checkout did not build. The gates were run in a detached worktree at
-`2f39143` with this change alone: `ci` (123 state tests on each framework, 47 view tests, 0 warnings), `check`,
-`traced`, `dev` (14 of 14 steps), `acceptance`, `red` and the hidden `--tour`, each with exit code 0.
+**Up and down movement, fixed next.** Moving up or down a line kept the count of UTF-16 units, so between a line
+indented with a tab and a line indented with spaces the cursor moved sideways. Eight tests were written first and
+all eight failed on an assertion: from after a tab and one letter, a line down landed at unit 2 of a line of
+spaces where column 5 is unit 5; the same the other way, into a tab, with tabs of eight, over ideographs, across
+a short line, while selecting, and by a page. The grid moved from the view into the state package, as the public
+module `Columns`, and vertical motion keeps a column of it: `SelectionRange.GoalColumn` is now a column of the
+grid. On lines of printable ASCII nothing changes. The five tests of the grid's arithmetic moved to the state
+tests with it.
+
+**Where it was verified.** Another session was editing the keymap, the README, the sample and a state test in the
+main checkout while this was done, and for a time that checkout did not build. Both fixes were verified in a
+detached worktree with these changes alone: `ci` (136 state tests on each framework, 42 view tests, 0 warnings),
+`check`, `traced`, `dev` (14 of 14 steps), `acceptance`, `red` and the hidden `--tour`, each with exit code 0.
 
 ## Statements of mine that were wrong
 
@@ -728,8 +736,8 @@ Two tests failed once each in single gate runs, and passed when run again; a thi
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 123 tests, run on `net10.0` and on `net8.0`. The view project has 47: 41 in hidden
-windows and 6 of the column grid.
+The state package has 136 tests, run on `net10.0` and on `net8.0`. The view project has 42: 41 in hidden
+windows and 1 of a line's markup.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also
@@ -745,7 +753,7 @@ each in a copy of its task's commit (figures in "The order the work was done in"
 `dotnet fsi --exec build.fsx -- dev`: the sample under the hot reload host, window off screen: 14 of 14 steps
 pass.
 
-`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 123 state tests on
+`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 136 state tests on
 each framework.
 
 `samples/EditorShowcase --tour`: 19 of 19 checks, hidden. `--tour --shown <picture>` shows the window for the
