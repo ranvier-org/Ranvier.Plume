@@ -49,6 +49,32 @@ module internal Html =
 
         builder.Append (text, start, to' - start) |> ignore
 
+    /// Appends the markup of the characters of `line` from `from` up to `to'`, the first of them standing at
+    /// column `column`, and gives the column after the last. A tab is spaces to its stop, a character of ASCII is
+    /// itself, and any other is in an element as wide as its columns (`Columns`).
+    let columnsInto (builder: StringBuilder) (line: string) (from: int) (to': int) (column: int) (tabSize: int) : int =
+        let mutable at = from
+        let mutable column = column
+
+        while at < to' do
+            let length = min (Columns.clusterLength line at) (to' - at)
+            let columns = Columns.columnsOf line at length column tabSize
+            let first = line[at]
+
+            if first = '\t' then
+                builder.Append (' ', columns) |> ignore
+            elif length = 1 && first < '\u0080' then
+                escapeInto builder line at (at + 1)
+            else
+                builder.Append (if columns = 2 then "<span class=\"pm-c2\">" else "<span class=\"pm-c1\">") |> ignore
+                escapeInto builder line at (at + length)
+                builder.Append "</span>" |> ignore
+
+            column <- column + columns
+            at <- at + length
+
+        column
+
     let escape (text: string) : string =
         if text.AsSpan().IndexOfAny ("&<>\"".AsSpan ()) < 0 then
             text
@@ -64,6 +90,7 @@ type internal MarkupCache(theme: Theme, capacity: int) =
     let lines = Dictionary<string, string> (StringComparer.Ordinal)
     let builder = StringBuilder 256
     let mutable held: Language voption = ValueNone
+    let mutable heldTabSize = 4
     let mutable hits = 0L
     let mutable misses = 0L
 
@@ -79,13 +106,16 @@ type internal MarkupCache(theme: Theme, capacity: int) =
         hits <- 0L
         misses <- 0L
 
-    member private _.Build(language: Language voption, line: string) : string =
+    member private _.Build(language: Language voption, tabSize: int, line: string) : string =
         if line.Length = 0 then
             ""
         else
             builder.Clear () |> ignore
             let mutable at = 0
             let mutable spans = 0
+            // A plain line is its text. Any other is laid on the column grid, and the column runs on across tokens.
+            let plain = Columns.isPlain line
+            let mutable column = 0
 
             match language with
             | ValueNone -> ()
@@ -93,20 +123,32 @@ type internal MarkupCache(theme: Theme, capacity: int) =
                 for token in language.Tokenize line do
                     // A token outside the line or before the one before it is left out.
                     if token.From >= at && token.To <= line.Length && token.To > token.From then
-                        Html.escapeInto builder line at token.From
-                        let mutable name = null
+                        if plain then
+                            Html.escapeInto builder line at token.From
+                        else
+                            column <- Html.columnsInto builder line at token.From column tabSize
 
-                        if classes.TryGetValue (token.Tag.Id, &name) then
+                        let mutable name = null
+                        let classed = classes.TryGetValue (token.Tag.Id, &name)
+
+                        if classed then
                             spans <- spans + 1
                             builder.Append("<span class=\"").Append(name).Append "\">" |> ignore
+
+                        if plain then
                             Html.escapeInto builder line token.From token.To
-                            builder.Append "</span>" |> ignore
                         else
-                            Html.escapeInto builder line token.From token.To
+                            column <- Html.columnsInto builder line token.From token.To column tabSize
+
+                        if classed then
+                            builder.Append "</span>" |> ignore
 
                         at <- token.To
 
-            Html.escapeInto builder line at line.Length
+            if plain then
+                Html.escapeInto builder line at line.Length
+            else
+                Html.columnsInto builder line at line.Length column tabSize |> ignore
 
             // Markup of text alone ends with an empty comment: without it, rows of such lines cost the engine
             // more to scroll (`ACCEPTANCE.md`, 7.1).
@@ -116,21 +158,24 @@ type internal MarkupCache(theme: Theme, capacity: int) =
             builder.ToString ()
 
     /// The markup of `line`: its text escaped, with a span for each token whose tag the theme gives a class, and
-    /// an empty comment after a line without spans.
-    member this.Markup(language: Language voption, enabled: bool, line: string) : string =
+    /// an empty comment after a line without such a span. A line with a tab or a character outside ASCII is laid on
+    /// the column grid for `tabSize`.
+    member this.Markup(language: Language voption, enabled: bool, tabSize: int, line: string) : string =
         let same =
-            match held, language with
-            | ValueSome a, ValueSome b -> obj.ReferenceEquals (a, b)
-            | ValueNone, ValueNone -> true
-            | _ -> false
+            tabSize = heldTabSize
+            && (match held, language with
+                | ValueSome a, ValueSome b -> obj.ReferenceEquals (a, b)
+                | ValueNone, ValueNone -> true
+                | _ -> false)
 
         if not same then
             lines.Clear ()
             held <- language
+            heldTabSize <- tabSize
 
         if not enabled then
             misses <- misses + 1L
-            this.Build (language, line)
+            this.Build (language, tabSize, line)
         else
             let mutable markup: string = null
 
@@ -143,18 +188,20 @@ type internal MarkupCache(theme: Theme, capacity: int) =
                 if lines.Count >= capacity then
                     lines.Clear ()
 
-                let made = this.Build (language, line)
+                let made = this.Build (language, tabSize, line)
                 lines[line] <- made
                 made
 
 /// What the rows are computed from beside the text, the state and the scroll position. A new value recomputes
 /// every row.
 [<Sealed>]
-type internal RowConfig(gutters: GutterSpec[], keys: obj[], language: Language voption, recycle: bool, cache: bool) =
+type internal RowConfig(gutters: GutterSpec[], keys: obj[], language: Language voption, tabSize: int, recycle: bool, cache: bool) =
     member _.Gutters = gutters
     /// `Key state` of each gutter.
     member _.Keys = keys
     member _.Language = language
+    /// The columns between tab stops.
+    member _.TabSize = tabSize
     member _.Recycle = recycle
     member _.Cache = cache
     /// A buffer for the markup of a row's gutter markers.
@@ -176,10 +223,11 @@ type internal RowConfig(gutters: GutterSpec[], keys: obj[], language: Language v
         |> Array.map (fun gutter -> String.Concat ("\" style=\"width:", gutter.Width.ToString ("0.##", CultureInfo.InvariantCulture), "px\">"))
 
     /// True when a configuration of these values would compute the rows this one computes.
-    member _.Holds(specs: GutterSpec[], state: EditorState, tokenizer: Language voption, recycling: bool, caching: bool) : bool =
+    member _.Holds(specs: GutterSpec[], state: EditorState, tokenizer: Language voption, tabs: int, recycling: bool, caching: bool) : bool =
         let mutable same =
             recycle = recycling
             && cache = caching
+            && tabSize = tabs
             && obj.ReferenceEquals (gutters, specs)
             && (match language, tokenizer with
                 | ValueSome a, ValueSome b -> obj.ReferenceEquals (a, b)
@@ -451,7 +499,7 @@ module internal Rows =
                 window.Written.Value <- window.Written.Value + 1L
                 let line = Text.line number window.Text
 
-                let html = window.Markup.Markup (window.Config.Language, window.Config.Cache, line.Text)
+                let html = window.Markup.Markup (window.Config.Language, window.Config.Cache, window.Config.TabSize, line.Text)
 
                 let gutter =
                     if window.Config.Gutters.Length = 0 then

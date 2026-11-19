@@ -48,6 +48,41 @@ let private shown (mounted: Mounted) (selector: string) : DOMRect[] =
 
 let private viewportOf (mounted: Mounted) : Element = (mounted.Query "[data-plume]")[0]
 
+/// The runs of 'x' in a line, each as a token.
+let private tokensOfMarks (line: string) : Token[] =
+    let tokens = ResizeArray<Token> ()
+    let mutable at = 0
+
+    while at < line.Length do
+        if line[at] = 'x' then
+            let from = at
+
+            while at < line.Length && line[at] = 'x' do
+                at <- at + 1
+
+            tokens.Add ({ From = from; To = at; Tag = Tag.punctuation }: Token)
+        else
+            at <- at + 1
+
+    tokens.ToArray ()
+
+/// A language that tags every run of 'x', so the page holds an element whose edges are where that text is drawn.
+let private marks: Extension = Language.extension (Language.ofLineLexer "marks" tokensOfMarks)
+
+/// Where the page drew the tagged text of a row: the element of the theme's class for punctuation.
+let private markOf (row: Element) : DOMRect = ((lineOf row).querySelector "span.t8").getBoundingClientRect ()
+
+/// The cursor put before the first 'x' of line `number` as the page drew it, and that text as the page drew it.
+let private cursorAndMark (mounted: Mounted) (number: int) : struct (DOMRect * DOMRect) =
+    let line = Text.line number mounted.Editor.Text.Value
+    let position = line.From + line.Text.IndexOf 'x'
+    mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.selection (EditorSelection.single position position) ])
+    mounted.Step ()
+    mounted.Step ()
+    let cursors = shown mounted "[data-pm~=cursor]"
+    Expect.equal cursors.Length 1 "one cursor"
+    struct (cursors[0], markOf mounted.Rows[number])
+
 [<Tests>]
 let tests =
     testSequenced
@@ -243,6 +278,97 @@ let tests =
                     let selected = shown mounted "[data-pm~=selection]"
                     Expect.equal selected.Length 4 "one rectangle for the first range and one per line of the second"
                     Expect.equal (shown mounted "[data-pm~=cursor]").Length 2 "a cursor per range")
+
+            testCase "the cursor after a tab stands where the text after the tab is drawn"
+            <| fun () ->
+                withView [ "plain xx"; "\txx"; "ab\txx"; "\t\txx"; "abcd\txx" ] (marks :: standard) 800 (fun mounted ->
+                    let width = mounted.View.CharWidth.Value
+                    let start = mounted.View.GutterWidth.Value
+
+                    // The page draws a tab to the next multiple of four columns.
+                    for number, columns in [ 0, 6; 1, 4; 2, 4; 3, 8; 4, 8 ] do
+                        let struct (cursor, mark) = cursorAndMark mounted number
+                        Expect.isLessThan (abs (mark.left - (start + float columns * width))) 0.75 (sprintf "line %d: the page draws the text at column %d" number columns)
+                        Expect.isLessThan (abs (cursor.left - mark.left)) 0.75 (sprintf "line %d: the cursor is where the text is" number))
+
+            testCase "the cursor after wide and combined characters stands where the next text is drawn"
+            <| fun () ->
+                withView [ "漢字xx"; "a漢b字xx"; "😀xx"; "e\u0301xx"; "ｆｕｌｌxx" ] (marks :: standard) 800 (fun mounted ->
+                    let width = mounted.View.CharWidth.Value
+                    let start = mounted.View.GutterWidth.Value
+
+                    // A wide character is drawn in two columns, and a letter with its combining mark in one.
+                    for number, columns in [ 0, 4; 1, 6; 2, 2; 3, 1; 4, 8 ] do
+                        let struct (cursor, mark) = cursorAndMark mounted number
+                        Expect.isLessThan (abs (mark.left - (start + float columns * width))) 0.75 (sprintf "line %d: the page draws the text at column %d" number columns)
+                        Expect.isLessThan (abs (cursor.left - mark.left)) 0.75 (sprintf "line %d: the cursor is where the text is" number)
+
+                    Expect.floatClose Accuracy.medium (mounted.Rows[0].getBoundingClientRect ()).height 20.0 "a row of wide characters is one line high")
+
+            testCase "a point on text after a tab or a wide character finds that text"
+            <| fun () ->
+                withView [ "\txx"; "漢字xx"; "ab\txx" ] (marks :: standard) 800 (fun mounted ->
+                    let view = mounted.View
+                    let text = mounted.Editor.Text.Value
+                    mounted.Step ()
+                    mounted.Step ()
+
+                    for number in 0..2 do
+                        let line = Text.line number text
+                        let first = line.From + line.Text.IndexOf 'x'
+                        let mark = markOf mounted.Rows[number]
+                        let y = mark.top + 5.0
+                        Expect.equal (mounted.Run (fun () -> view.PosAtCoords (mark.left + 1.0) y)) first (sprintf "line %d: a point on the first tagged character is before it" number)
+                        Expect.equal (mounted.Run (fun () -> view.PosAtCoords (mark.right - 1.0) y)) (first + 2) (sprintf "line %d: a point at the end of the tagged text is after it" number)
+                        Expect.equal (mounted.Run (fun () -> view.PosAtCoords (mark.right + 400.0) y)) line.To (sprintf "line %d: a point past the line is its end" number)
+
+                    // Inside a tab, the nearer edge.
+                    let start = view.GutterWidth.Value
+                    let width = view.CharWidth.Value
+                    Expect.equal (mounted.Run (fun () -> view.PosAtCoords (start + 1.2 * width) 5.0)) 0 "the left part of a tab is before it"
+                    Expect.equal (mounted.Run (fun () -> view.PosAtCoords (start + 3.2 * width) 5.0)) 1 "the right part of a tab is after it")
+
+            testCase "a selection over a tab or wide characters covers the text it selects"
+            <| fun () ->
+                withView [ "\txx"; "漢字xx" ] (marks :: standard) 800 (fun mounted ->
+                    let text = mounted.Editor.Text.Value
+                    let start = mounted.View.GutterWidth.Value
+
+                    for number in 0..1 do
+                        let line = Text.line number text
+                        mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.selection (EditorSelection.single line.From line.To) ])
+                        mounted.Step ()
+                        mounted.Step ()
+                        let selected = shown mounted "[data-pm~=selection]"
+                        Expect.equal selected.Length 1 "one rectangle"
+                        let mark = markOf mounted.Rows[number]
+                        Expect.isLessThan (abs (selected[0].left - start)) 0.75 (sprintf "line %d: from the start of the line" number)
+                        Expect.isLessThan (abs (selected[0].right - mark.right)) 0.75 (sprintf "line %d: to the end of its text" number))
+
+            testCase "the rectangle of a tab or a wide character is as wide as the page draws it"
+            <| fun () ->
+                withView [ "\txx"; "漢xx" ] (marks :: standard) 800 (fun mounted ->
+                    let start = mounted.View.GutterWidth.Value
+                    mounted.Step ()
+                    mounted.Step ()
+
+                    for number in 0..1 do
+                        let line = Text.line number mounted.Editor.Text.Value
+                        let rect = mounted.Run (fun () -> mounted.View.CoordsAtPos line.From)
+                        let mark = markOf mounted.Rows[number]
+                        Expect.isLessThan (abs (rect.Left - start)) 0.05 (sprintf "line %d: it starts the line" number)
+                        Expect.isLessThan (abs (rect.Width - (mark.left - start))) 0.75 (sprintf "line %d: and reaches the text after it" number))
+
+            testCase "a tab is drawn and placed by the tab size of the state"
+            <| fun () ->
+                withView [ "\txx"; "ab\txx" ] (EditorState.tabSize.Of 8 :: marks :: standard) 800 (fun mounted ->
+                    let width = mounted.View.CharWidth.Value
+                    let start = mounted.View.GutterWidth.Value
+
+                    for number in 0..1 do
+                        let struct (cursor, mark) = cursorAndMark mounted number
+                        Expect.isLessThan (abs (mark.left - (start + 8.0 * width))) 0.75 (sprintf "line %d: the page draws the tab to the eighth column" number)
+                        Expect.isLessThan (abs (cursor.left - mark.left)) 0.75 (sprintf "line %d: and the cursor is there" number))
 
             testCase "an edit to a line leaves its gutter marker's element in place"
             <| fun () ->
@@ -738,7 +864,7 @@ let tests =
                         Effects = Array.empty
                     }
 
-                let config = RowConfig (Array.empty, Array.empty, ValueNone, true, true)
+                let config = RowConfig (Array.empty, Array.empty, ValueNone, 4, true, true)
                 let markup = MarkupCache (Theme.dark, 16)
 
                 for lineHeight in [ 20.0; 24.0; 40.0 ] do
@@ -757,7 +883,8 @@ let tests =
             testCase "reconfiguring another compartment leaves the plugins and the rows alone"
             <| fun () ->
                 let log = ResizeArray<string> ()
-                let tabs = Compartment.create ()
+                // The indent unit is a facet no view reads.
+                let indent = Compartment.create ()
 
                 let plugin =
                     ViewPlugin.define (fun _ ->
@@ -765,13 +892,28 @@ let tests =
                         Api.onCleanup (fun () -> log.Add "disposed")
                         0)
 
-                withView (manyLines 100) (tabs.Of (EditorState.tabSize.Of 2) :: ViewPlugin.extension plugin :: standard) 800 (fun mounted ->
+                withView (manyLines 100) (indent.Of (EditorState.indentUnit.Of "  ") :: ViewPlugin.extension plugin :: standard) 800 (fun mounted ->
                     let before = mounted.View.RowsWritten ()
-                    mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.effect (tabs.Reconfigure (EditorState.tabSize.Of 8)) ])
+                    mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.effect (indent.Reconfigure (EditorState.indentUnit.Of "\t")) ])
                     mounted.Step ()
                     Expect.sequenceEqual log [ "created" ] "the plugin stays"
                     Expect.equal (mounted.View.RowsWritten () - before) 0L "no row is computed again"
                     Expect.equal (shown mounted "[data-pm~=cursor]").Length 1 "the cursor is still drawn")
+
+            testCase "reconfiguring the tab size draws the tabs again"
+            <| fun () ->
+                let tabs = Compartment.create ()
+
+                withView [ "\txx" ] (tabs.Of (EditorState.tabSize.Of 2) :: marks :: standard) 800 (fun mounted ->
+                    let width = mounted.View.CharWidth.Value
+                    let start = mounted.View.GutterWidth.Value
+                    let struct (_, narrow) = cursorAndMark mounted 0
+                    Expect.isLessThan (abs (narrow.left - (start + 2.0 * width))) 0.75 "a tab of two columns"
+                    mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.effect (tabs.Reconfigure (EditorState.tabSize.Of 8)) ])
+                    mounted.Step ()
+                    let struct (cursor, wide) = cursorAndMark mounted 0
+                    Expect.isLessThan (abs (wide.left - (start + 8.0 * width))) 0.75 "the same tab at eight columns"
+                    Expect.isLessThan (abs (cursor.left - wide.left)) 0.75 "and the cursor with it")
 
             testCase "scrolling after the document shrank starts from where the view is"
             <| fun () ->
@@ -851,4 +993,72 @@ let tests =
                     mounted.Step ()
                     Expect.equal (lineOf mounted.Rows[0]).innerHTML "a &lt; b!<!---->" "after an edit"
                     Expect.equal (lineOf mounted.Rows[0]).childNodes.length 2u "a text node and a comment")
+        ]
+
+/// The column grid, without a window.
+[<Tests>]
+let columnTests =
+    testList
+        "Columns"
+        [
+            testCase "a plain line has a column for each character"
+            <| fun () ->
+                Expect.equal (Columns.columnOf "hello" 4 3) 3 "column"
+                Expect.equal (Columns.columnOf "hello" 4 9) 5 "past the end is the line's width"
+                Expect.equal (Columns.widthAt "hello" 4 2) 1 "width"
+                Expect.equal (Columns.offsetAt "hello" 4 2.4) 2 "nearest boundary"
+                Expect.equal (Columns.offsetAt "hello" 4 2.6) 3 "nearest boundary, above the half"
+                Expect.equal (Columns.offsetAt "hello" 4 -3.0) 0 "left of the line"
+                Expect.equal (Columns.offsetAt "hello" 4 80.0) 5 "right of the line"
+
+            testCase "a tab reaches to the next multiple of the tab size"
+            <| fun () ->
+                Expect.equal [ for offset in 0..3 -> Columns.columnOf "\txx" 4 offset ] [ 0; 4; 5; 6 ] "a tab at the start"
+                Expect.equal [ for offset in 0..5 -> Columns.columnOf "ab\txx" 4 offset ] [ 0; 1; 2; 4; 5; 6 ] "a tab after two characters"
+                Expect.equal (Columns.columnOf "abcd\tx" 4 5) 8 "a tab at a stop takes a whole stop"
+                Expect.equal (Columns.columnOf "\t\tx" 8 2) 16 "two tabs of eight"
+                Expect.equal (Columns.widthAt "ab\tx" 4 2) 2 "the tab's own width"
+                Expect.equal (Columns.widthAt "\tx" 2 0) 2 "a tab of two"
+
+            testCase "a wide character takes two columns, and a combined one is one character"
+            <| fun () ->
+                Expect.equal [ for offset in 0..3 -> Columns.columnOf "漢字x" 4 offset ] [ 0; 2; 4; 5 ] "ideographs"
+                Expect.equal [ for offset in 0..3 -> Columns.columnOf "😀x" 4 offset ] [ 0; 0; 2; 3 ] "a unit inside a surrogate pair is at the pair's start"
+                Expect.equal [ for offset in 0..3 -> Columns.columnOf "e\u0301x" 4 offset ] [ 0; 0; 1; 2 ] "a combining mark belongs to its letter"
+                Expect.equal (Columns.columnOf "éλx" 4 2) 2 "narrow letters outside ASCII take one"
+                Expect.equal (Columns.widthAt "漢x" 4 0, Columns.widthAt "😀x" 4 0, Columns.widthAt "éx" 4 0) (2, 2, 1) "widths"
+                Expect.equal (Columns.columnOf "漢\tx" 4 2) 4 "a tab after a wide character"
+
+            testCase "a column finds the nearest character boundary"
+            <| fun () ->
+                Expect.equal [ for column in [ 0.0; 1.9; 2.1; 3.9; 4.4; 4.6 ] -> Columns.offsetAt "\txx" 4 column ] [ 0; 0; 1; 1; 1; 2 ] "inside and after a tab"
+                Expect.equal [ for column in [ 0.9; 1.1; 2.9; 3.1; 4.6 ] -> Columns.offsetAt "漢字x" 4 column ] [ 0; 1; 1; 2; 3 ] "wide characters"
+                Expect.equal (Columns.offsetAt "😀x" 4 1.2) 2 "never inside a surrogate pair"
+
+            testCase "every character boundary is found again from its column"
+            <| fun () ->
+                let pieces = [| "a"; " "; "\t"; "漢"; "😀"; "e\u0301"; "é"; "x" |]
+                let random = Random 7
+
+                for _ in 1..500 do
+                    let line = String.Concat [ for _ in 1 .. random.Next (0, 12) -> pieces[random.Next pieces.Length] ]
+                    let tabSize = [| 2; 4; 8 |][random.Next 3]
+                    let mutable at = 0
+
+                    while at <= line.Length do
+                        let column = Columns.columnOf line tabSize at
+                        Expect.equal (Columns.offsetAt line tabSize (float column)) at (sprintf "offset %d of a line of %d units at tab size %d" at line.Length tabSize)
+                        at <- if at < line.Length then at + Ranvier.Keyboard.Grapheme.nextClusterLength line at else at + 1
+
+            testCase "the markup of a line draws a tab as spaces and boxes a character outside ASCII"
+            <| fun () ->
+                let cache = MarkupCache (EditorView.defaults.Theme, 16)
+                Expect.equal (cache.Markup (ValueNone, true, 4, "a<b")) "a&lt;b<!---->" "a plain line is its text"
+                Expect.equal (cache.Markup (ValueNone, true, 4, "ab\tc")) "ab  c<!---->" "a tab to the next stop"
+                Expect.equal (cache.Markup (ValueNone, true, 8, "ab\tc")) "ab      c<!---->" "the same line at another tab size"
+                Expect.equal (cache.Markup (ValueNone, true, 4, "漢é")) "<span class=\"pm-c2\">漢</span><span class=\"pm-c1\">é</span><!---->" "a box of two columns and a box of one"
+                Expect.equal (cache.Markup (ValueNone, true, 4, "<\u0301")) "<span class=\"pm-c1\">&lt;\u0301</span><!---->" "a boxed character is escaped"
+
+                let language = Language.ofLineLexer "marks" tokensOfMarks
+                Expect.equal (cache.Markup (ValueSome language, true, 4, "a\txx\tb")) "a   <span class=\"t8\">xx</span>  b" "tab stops count across a token"
         ]

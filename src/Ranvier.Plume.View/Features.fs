@@ -108,17 +108,16 @@ module DrawSelection =
                                             else Text.line number text
 
                                         let from = max range.From line.From
-                                        // A line selected through its line break shows one character more.
-                                        let columns =
-                                            min range.To line.To - from
-                                            + (if range.To > line.To then 1 else 0)
+                                        let at = view.CoordsAtPos from
+                                        // A line selected through its line break shows one column more.
+                                        let right =
+                                            (view.CoordsAtPos (min range.To line.To)).Left
+                                            + (if range.To > line.To then width else 0.0)
 
-                                        if columns > 0 then
-                                            let at = view.CoordsAtPos from
-
+                                        if right > at.Left then
                                             markers.Add
                                                 {
-                                                    Rect = { at with Width = float columns * width }
+                                                    Rect = { at with Width = right - at.Left }
                                                     Class = ""
                                                 }
 

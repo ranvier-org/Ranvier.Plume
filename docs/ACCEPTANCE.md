@@ -45,7 +45,7 @@ stays what it was.
 | 5 History and `Document` | 4 of 4 | `baff5e2`, `0f2937f` | 17 `History`, 10 `Document` and 1 `Retention` test |
 | 6 `Editor` | 3 of 3 | `baff5e2` | 14 `Editor` tests |
 | 7 Commands, keymaps, language | 3 of 3 | `71e619d` | 12 `Commands`, 4 `Keymap` and 2 `Language` tests |
-| 8 `Ranvier.Plume.View` | 4 of 4, step 1 late | `334bc51`, `7b2e860` | 34 view tests in hidden windows; each case of the step 2 smoke test has a test. No spike was made (step 1); its two questions are tests written after the view |
+| 8 `Ranvier.Plume.View` | 4 of 4, step 1 late | `334bc51`, `7b2e860` | 41 view tests in hidden windows (34 at the end of phase 1) and 6 of the column grid; each case of the step 2 smoke test has a test. No spike was made (step 1); its two questions are tests written after the view |
 | 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture `sample-shot.png` (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
 | 10 SIMD checks | 3 of 3 | `26dea99` | 7.3 below: the vectorised scan is faster and is kept; `--apply` is measured. Step 3 named a commit of its own; keeping the scan changed no code, so the decision is recorded with the acceptance commit |
 | 11 Acceptance | 5 of 5 | `26dea99`, `dd00fc9`, `7b2e860`, `8360aad` | 7.1: all nine rows pass. 7.2: 279 bytes. Step 3: the profile and the fix, in 7.1. Step 4: this file, the dossier's status line and decision 17. Step 5: the gate, `rfs check`, and two fresh-context reviews with their findings fixed |
@@ -633,6 +633,64 @@ unless they say otherwise):
 - A Fable build, packaging and CI: not in phase 1.
 - Atelier was not read beyond `Atelier.Text` and its tests, and was not built or run.
 
+## After phase 1: tabs and wide characters on a column grid
+
+Found on 2026-11-19 by reading the view, then shown by tests written before the fix. The view placed the cursor,
+the selection and a pointer's position at one column for each UTF-16 unit, and the page did not draw text that
+way.
+
+**What the page drew**, **measured here** in the view tests' hidden window: 14 px Consolas, a column of 7.70 px,
+gutters of 72 px.
+
+| Line | Where the text after it was drawn | Where the cursor stood |
+|---|---|---|
+| A tab, then text | 20.4 px after the line's start. The engine counts tab stops from the row's edge, and the gutters take 72 px of the row | 7.7 px: one column |
+| Two ideographs, then text | 28.0 px. Each glyph is as wide as the font size | 15.4 px: two columns |
+
+A tab was 2.6 columns wide where the state's tab size is 4, and the page drew four columns to a stop whatever the
+state's tab size was.
+
+**The failing run.** Ten tests were written first and run against the view as it was, with a module holding the
+old rule (one column a unit) so that they compiled. All ten failed on an assertion:
+
+- in a window: the cursor after a tab; the cursor after wide and combined characters; a point on text after a tab
+  or a wide character, which gave offset 3 where the text is at offset 1; a selection over them; the rectangle of
+  such a character; a tab drawn by the state's tab size;
+- without a window: a tab's columns; a wide character's columns; the boundary nearest a column; the markup of a
+  line.
+
+**The fix: one grid for the page and for the arithmetic** (`Columns.fs`). A column is one character advance. The
+markup of a line draws a tab as spaces to the next multiple of `EditorState.tabSize`, and a character outside
+ASCII in a box of one column or of two; a letter with its combining marks, or a surrogate pair, is one character.
+`CoordsAtPos`, `PosAtCoords`, the cursor and the selection count the same columns. A line of printable ASCII is
+drawn and placed as before. A change of the tab size draws the rows again.
+
+**Tests.** The view project has 47: 41 in hidden windows and 6 of the grid alone. One new test, of a tab size
+changed while the view is mounted, was written after the code it tests; it was then seen to fail with the tab
+size left out of the row configuration. One older test changed: it used the tab size as a facet no view reads,
+and uses the indent unit now.
+
+**Frame cost.** The sample's text is printable ASCII, so its markup is what it was. **Measured here:**
+`EditorShowcase --bench`, eight alternating pairs of the build before the change and the build with it, the order
+turned round every pair, on a machine busy with other work (40% to 57% of its processors in use). The median of
+a frame's total is at or below the earlier build's in eight of the nine rows, and 0.6% above it in the ninth
+(1.446 against 1.437 ms). The logs in `bench/` are still those of `7b2e860`.
+
+**What it does not do:**
+
+- The list of wide characters is from general knowledge of Unicode's East Asian Width property and of the emoji
+  blocks, not checked against the data file. A wide character missing from it is drawn in a box of one column
+  and reaches into the next.
+- A line of many characters outside ASCII has an element for each of them. Its cost is not measured.
+- A control character other than a tab counts one column, whatever the page draws for it.
+- Moving up or down a line keeps the count of UTF-16 units, not the column. Between a line indented with a tab
+  and a line indented with spaces the cursor moves sideways.
+
+**Where it was verified.** Another session was editing the keymap, the README and the sample in this checkout
+while the gates ran, and for a time the checkout did not build. The gates were run in a detached worktree at
+`2f39143` with this change alone: `ci` (123 state tests on each framework, 47 view tests, 0 warnings), `check`,
+`traced`, `dev` (14 of 14 steps), `acceptance`, `red` and the hidden `--tour`, each with exit code 0.
+
 ## Statements of mine that were wrong
 
 - I ticked steps 1.3, 2.2 and 8.1 of the plan, and wrote "5 of 5" and "4 of 4" for their tasks here, for acts
@@ -670,7 +728,8 @@ Two tests failed once each in single gate runs, and passed when run again; a thi
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 123 tests, run on `net10.0` and on `net8.0`, and the view has 34.
+The state package has 123 tests, run on `net10.0` and on `net8.0`. The view project has 47: 41 in hidden
+windows and 6 of the column grid.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also

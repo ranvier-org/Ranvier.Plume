@@ -129,6 +129,7 @@ module internal Surface =
 
         let gutters = editor.Facet Gutter.facet
         let language = editor.Facet Language.facet
+        let tabSize = editor.Facet EditorState.tabSize
         let recycle = editor.Facet ViewFacets.recycleRows
         let cache = editor.Facet ViewFacets.markupCache
         let promoted = editor.Facet ViewFacets.compositorLayer
@@ -145,8 +146,8 @@ module internal Surface =
                 let state = editor.State.Value
 
                 match previous with
-                | ValueSome before when before.Holds (specs, state, language.Value, recycle.Value, cache.Value) -> before
-                | _ -> RowConfig (specs, specs |> Array.map (fun gutter -> gutter.Key state), language.Value, recycle.Value, cache.Value))
+                | ValueSome before when before.Holds (specs, state, language.Value, tabSize.Value, recycle.Value, cache.Value) -> before
+                | _ -> RowConfig (specs, specs |> Array.map (fun gutter -> gutter.Key state), language.Value, tabSize.Value, recycle.Value, cache.Value))
 
         let window =
             Api.createMemo (fun (previous: RowWindow voption) ->
@@ -404,20 +405,20 @@ module internal Surface =
                     fun x y ->
                         Api.untrack (fun () ->
                             let text = editor.Text.Value
-                            let line = Math.Clamp (int ((top.Value + y) / lineHeight), 0, text.Lines - 1)
-                            let column = int (Math.Round ((x - gutterWidth.Value) / charWidth.Value))
-                            Text.offsetOf line column text)
+                            let line = Text.line (Math.Clamp (int ((top.Value + y) / lineHeight), 0, text.Lines - 1)) text
+                            line.From + Columns.offsetAt line.Text tabSize.Value ((x - gutterWidth.Value) / charWidth.Value))
                 CoordsAtPos =
                     fun position ->
                         let text = editor.Text.Value
                         let line = Text.lineAt (Math.Clamp (position, 0, text.Length)) text
                         let width = charWidth.Value
-                        let column = min (position - line.From) line.Text.Length
+                        let tabs = tabSize.Value
+                        let within = min (position - line.From) line.Text.Length
 
                         {
-                            Left = gutterWidth.Value + float column * width
+                            Left = gutterWidth.Value + float (Columns.columnOf line.Text tabs within) * width
                             Top = float (line.Number - anchor.Value) * lineHeight + Rows.Lead
-                            Width = width
+                            Width = float (Columns.widthAt line.Text tabs within) * width
                             Height = lineHeight
                         }
                 RunFrame = fun () -> Api.batch commit
@@ -635,9 +636,9 @@ module EditorView =
                 Css.fontSize (Css.px theme.FontSize)
                 Css.lineHeight (Css.px theme.LineHeight)
                 Css.whiteSpace CssValue.WhiteSpace.pre
-                Css.tabSize (Css.number 4.)
-                // Kerning and ligatures off: every glyph then advances by the same amount, and a column is a
-                // multiplication.
+                // Kerning and ligatures off: every glyph of the font then advances by the same amount. A tab and a
+                // character outside ASCII are drawn on the same grid by the line's markup (`Columns`), so a column is
+                // a multiplication.
                 Css.fontKerning CssValue.Font.Kerning.none
                 Css.fontVariantLigatures CssValue.Font.Variant.Ligatures.none
                 Declaration.create "color" theme.Ink
@@ -868,6 +869,11 @@ module EditorView =
 
                 // The text starts 24 CSS pixels after the last gutter.
                 yield Rule.style (under "[data-pm~=\"gutter-last\"]") [ Declaration.create "margin-right" "24px" ]
+
+                // A character outside ASCII is drawn in a box of one column or of two. The boxes are found by class:
+                // an engine tests a class rule against the elements of that class alone.
+                yield Rule.style (under ".pm-c1") [ Declaration.create "display" "inline-block"; Declaration.create "width" "1ch" ]
+                yield Rule.style (under ".pm-c2") [ Declaration.create "display" "inline-block"; Declaration.create "width" "2ch" ]
 
                 for _, name, declarations in theme.Tokens do
                     yield
