@@ -16,8 +16,6 @@ The retention cut is `firstSeq - 1`. A reader cursor holds the last sequence it 
 
 With .NET and the [pinned opam toolchain](../.github/workflows/proofs.yml), run `opam exec -- bash proofs/check.sh` from the repository root. In WSL using the Windows SDK, set `DOTNET=dotnet.exe`. The script builds the test project, compiles the model and observations, verifies that each audited theorem is closed under the global context, and runs `rocq check` on the compiled results.
 
-## Split-surrogate counterexample
+## UTF-16 boundaries
 
-The mathematical edit theorem holds for arbitrary sequences. The default differential fixture checks all ordered disjoint range pairs at scalar boundaries in `aλ🙂b`. Run `opam exec -- bash proofs/check.sh --all-offsets` to include the UTF-16 offset inside 🙂.
-
-On the release implementation, inserting `x` at the start while deleting the first three UTF-16 units leaves a lone low surrogate. The model preserves that unit; the UTF-8 rope can return U+FFFD. The broader check fails at the forward result before it checks undo. The default conformance run excludes that offset explicitly. A green run gives no guarantee of lossless edits through surrogate pairs.
+The differential fixture includes every UTF-16 offset in `aλ🙂b`, including the interior of the surrogate pair. The original failing edit inserted `x` at the start and deleted the first three code units. The current check compares both the resulting low surrogate and the inverse edit with the reference sequence. Rope leaves retain the exact line when its code units cannot be represented by UTF-8. See [issue #3](https://github.com/ranvier-org/Ranvier.Plume/issues/3).

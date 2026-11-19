@@ -22,11 +22,7 @@ let check name expr =
 // Represent the witness with the original spans, independent of the F# section encoder.
 let source = "aλ🙂b"
 let doc = Text.ofString source
-let positions =
-    [0..source.Length]
-    |> List.filter (fun offset ->
-        Array.contains "--all-offsets" fsi.CommandLineArgs
-        || offset = source.Length || not (Char.IsLowSurrogate source[offset]))
+let positions = [0..source.Length]
 for a in positions do
     for b in positions |> List.filter ((<=) a) do
         for c in positions |> List.filter ((<=) b) do
