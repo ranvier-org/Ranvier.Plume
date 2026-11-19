@@ -36,6 +36,47 @@ module Keymap =
     /// An extension that adds <c>bindings</c>.
     let extension (bindings: KeyBinding list) : Extension = facet.Of bindings
 
+    /// Bind an ordered sequence of typed strokes to a command.
+    let bindChords (keys: KeyChord list) (command: Command) : KeyBinding =
+        { Keys = keys; Run = command; Shift = ValueNone; Scope = "" }
+
+    /// Bind a sequence with an alternate command for Shift on the final stroke.
+    let bindChordsWithShift (keys: KeyChord list) (command: Command) (shifted: Command) : KeyBinding =
+        { bindChords keys command with Shift = ValueSome shifted }
+
+    /// Motion, selection and editing keys.
+    let standard: KeyBinding list =
+        [
+            bindChordsWithShift [ chord { key (Navigation ArrowLeft) } ] Commands.cursorCharLeft Commands.selectCharLeft
+            bindChordsWithShift [ chord { key (Navigation ArrowRight) } ] Commands.cursorCharRight Commands.selectCharRight
+            bindChordsWithShift [ chord { ctrl; key (Navigation ArrowLeft) } ] Commands.cursorGroupLeft Commands.selectGroupLeft
+            bindChordsWithShift [ chord { ctrl; key (Navigation ArrowRight) } ] Commands.cursorGroupRight Commands.selectGroupRight
+            bindChordsWithShift [ chord { key (Navigation ArrowUp) } ] Commands.cursorLineUp Commands.selectLineUp
+            bindChordsWithShift [ chord { key (Navigation ArrowDown) } ] Commands.cursorLineDown Commands.selectLineDown
+            bindChordsWithShift [ chord { key (Navigation PageUp) } ] Commands.cursorPageUp Commands.selectPageUp
+            bindChordsWithShift [ chord { key (Navigation PageDown) } ] Commands.cursorPageDown Commands.selectPageDown
+            bindChordsWithShift [ chord { key (Navigation Home) } ] Commands.cursorLineStart Commands.selectLineStart
+            bindChordsWithShift [ chord { key (Navigation End) } ] Commands.cursorLineEnd Commands.selectLineEnd
+            bindChordsWithShift [ chord { ctrl; key (Navigation Home) } ] Commands.cursorDocStart Commands.selectDocStart
+            bindChordsWithShift [ chord { ctrl; key (Navigation End) } ] Commands.cursorDocEnd Commands.selectDocEnd
+            bindChords [ chord { ctrl; key (Character (Rune 'a')) } ] Commands.selectAll
+            bindChords [ chord { key (Whitespace Enter) } ] Commands.insertNewlineKeepIndent
+            bindChords [ chord { key (Editing EditingKey.Backspace) } ] Commands.deleteCharBackward
+            bindChords [ chord { key (Editing EditingKey.Delete) } ] Commands.deleteCharForward
+            bindChords [ chord { key (Whitespace Tab) } ] Commands.insertTab
+        ]
+
+    /// Undo on Ctrl-z; redo on Ctrl-y and Ctrl-Shift-z.
+    let history: KeyBinding list =
+        [
+            bindChords [ chord { ctrl; key (Character (Rune 'z')) } ] Commands.undo
+            bindChords [ chord { ctrl; key (Character (Rune 'y')) } ] Commands.redo
+            bindChords [ chord { ctrl; shift; key (Character (Rune 'Z')) } ] Commands.redo
+        ]
+
+    /// <c>standard</c> and <c>history</c>.
+    let defaults: KeyBinding list = standard @ history
+
     /// The chord of one stroke: modifiers and a W3C key name joined by "-", as in "Ctrl-z", "Ctrl-Shift-z",
     /// "Shift-ArrowLeft", "Enter".
     /// <exception cref="T:System.ArgumentException">The stroke names no key or an unknown modifier.</exception>
@@ -84,56 +125,16 @@ module Keymap =
                 AltGraph = false
             }
 
-    /// A binding of <c>keys</c>, strokes separated by spaces, to <c>command</c>.
+    let private parseStrokes (keys: string) =
+        keys.Split (' ', StringSplitOptions.RemoveEmptyEntries) |> Array.map chord |> List.ofArray
+
+    /// Bind a space-separated sequence in editor key notation.
     let bind (keys: string) (command: Command) : KeyBinding =
-        {
-            Keys =
-                keys.Split (' ', StringSplitOptions.RemoveEmptyEntries)
-                |> Array.map chord
-                |> List.ofArray
-            Run = command
-            Shift = ValueNone
-            Scope = ""
-        }
+        bindChords (parseStrokes keys) command
 
     /// <c>bind</c>, with <c>shifted</c> for the same strokes with Shift held.
     let bindShift (keys: string) (command: Command) (shifted: Command) : KeyBinding =
-        { bind keys command with
-            Shift = ValueSome shifted
-        }
-
-    /// Motion, selection and editing keys.
-    let standard: KeyBinding list =
-        [
-            bindShift "ArrowLeft" Commands.cursorCharLeft Commands.selectCharLeft
-            bindShift "ArrowRight" Commands.cursorCharRight Commands.selectCharRight
-            bindShift "Ctrl-ArrowLeft" Commands.cursorGroupLeft Commands.selectGroupLeft
-            bindShift "Ctrl-ArrowRight" Commands.cursorGroupRight Commands.selectGroupRight
-            bindShift "ArrowUp" Commands.cursorLineUp Commands.selectLineUp
-            bindShift "ArrowDown" Commands.cursorLineDown Commands.selectLineDown
-            bindShift "PageUp" Commands.cursorPageUp Commands.selectPageUp
-            bindShift "PageDown" Commands.cursorPageDown Commands.selectPageDown
-            bindShift "Home" Commands.cursorLineStart Commands.selectLineStart
-            bindShift "End" Commands.cursorLineEnd Commands.selectLineEnd
-            bindShift "Ctrl-Home" Commands.cursorDocStart Commands.selectDocStart
-            bindShift "Ctrl-End" Commands.cursorDocEnd Commands.selectDocEnd
-            bind "Ctrl-a" Commands.selectAll
-            bind "Enter" Commands.insertNewlineKeepIndent
-            bind "Backspace" Commands.deleteCharBackward
-            bind "Delete" Commands.deleteCharForward
-            bind "Tab" Commands.insertTab
-        ]
-
-    /// Undo on Ctrl-z; redo on Ctrl-y and Ctrl-Shift-z.
-    let history: KeyBinding list =
-        [
-            bind "Ctrl-z" Commands.undo
-            bind "Ctrl-y" Commands.redo
-            bind "Ctrl-Shift-z" Commands.redo
-        ]
-
-    /// <c>standard</c> and <c>history</c>.
-    let defaults: KeyBinding list = standard @ history
+        bindChordsWithShift (parseStrokes keys) command shifted
 
     let private unshifted (chord: KeyChord) : KeyChord =
         let modifiers = { chord.Modifiers with Shift = false }

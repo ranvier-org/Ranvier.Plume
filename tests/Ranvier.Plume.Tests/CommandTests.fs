@@ -240,8 +240,11 @@ let keymapTests =
             <| fun () ->
                 let mutable ran = 0
 
+                let ctrl (letter: char) =
+                    KeyChord.ofLogical (Character (System.Text.Rune letter)) { KeyModifiers.None with Ctrl = true }
+
                 let binding =
-                    Keymap.bind "Ctrl-k Ctrl-c" (fun _ ->
+                    Keymap.bindChords [ ctrl 'k'; ctrl 'c' ] (fun _ ->
                         ran <- ran + 1
                         true)
 

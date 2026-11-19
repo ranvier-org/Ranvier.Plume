@@ -14,6 +14,7 @@ open Ranvier.Css.View
 open Ranvier.View.WebCore
 open Ranvier.View.WebCore.Sdl
 open Ranvier.Plume
+open Ranvier.Keyboard
 open Ranvier.Plume.View
 open EditorShowcase.Sample
 open EditorShowcase.Model
@@ -158,7 +159,7 @@ let private setup (ctx: Setup) (props: Props) : State =
 
     let extensionsFor (index: int) : Extension list =
         [ Keymap.extension
-              [ Keymap.bind "F5" (fun _ ->
+              [ Keymap.bindChords [ chord { key (FunctionKey 5) } ] (fun _ ->
                     onToggleTour.Value ()
                     true) ]
           Keymap.extension Keymap.defaults

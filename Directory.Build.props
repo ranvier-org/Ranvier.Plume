@@ -15,7 +15,7 @@
         <!-- Fable.Package.SDK sets DebugType=embedded: the PDB (with SourceLink) lives in each dll, so no .snupkg is produced. -->
         <IncludeSymbols>false</IncludeSymbols>
         <RanvierVersion Condition="'$(RanvierVersion)' == ''">0.2.0</RanvierVersion>
-        <RanvierKeyboardVersion Condition="'$(RanvierKeyboardVersion)' == ''">0.1.0</RanvierKeyboardVersion>
+        <RanvierKeyboardVersion Condition="'$(RanvierKeyboardVersion)' == ''">0.2.0</RanvierKeyboardVersion>
         <RanvierViewVersion Condition="'$(RanvierViewVersion)' == ''">0.1.50</RanvierViewVersion>
         <RanvierCssVersion Condition="'$(RanvierCssVersion)' == ''">0.1.1</RanvierCssVersion>
         <!-- A traced build is opt-in in every configuration: pass -p:RanvierTrace=true. -->

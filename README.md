@@ -23,6 +23,23 @@ editor.Dispatch [ Tx.change { From = 4; To = 10; Insert = Text.ofString "result"
 
 The design is in [docs/DOSSIER.md](docs/DOSSIER.md). Pre-1.0: the API may change.
 
+## Bind editor commands
+
+Use `Keymap.bindChords` for a shortcut or a sequence. Use `Keymap.bindChordsWithShift` when holding
+Shift on the last stroke should select an alternate command.
+
+```fsharp
+open Ranvier.Keyboard
+open Ranvier.Plume
+
+let right = chord { key (Navigation ArrowRight) }
+let movement =
+    Keymap.extension [ Keymap.bindChordsWithShift [ right ] Commands.cursorCharRight Commands.selectCharRight ]
+```
+
+For bindings loaded from text configuration, `Keymap.bind` and `Keymap.bindShift` accept editor
+notation such as `"Ctrl-z"` and `"Ctrl-k Ctrl-c"`.
+
 ## Build, test and measure
 
 ```
