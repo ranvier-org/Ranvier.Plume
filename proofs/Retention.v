@@ -29,6 +29,26 @@ Proof.
   inversion Hall; apply IH; auto; lia.
 Qed.
 
+(* An index in the current registry is only a hint. It may have shifted or
+   fallen out of range after disposal. Only the current value can certify a cut. *)
+Definition hinted_cut cut head rs index :=
+  match nth_error rs index with
+  | Some r => if Nat.eqb r cut then cut else oldest head rs
+  | None => oldest head rs
+  end.
+
+Theorem hinted_cut_exact cut head rs index :
+  cut <= head -> Forall (fun r => cut <= r) rs ->
+  hinted_cut cut head rs index = oldest head rs.
+Proof.
+  intros Hhead Hrs. unfold hinted_cut.
+  destruct (nth_error rs index) as [r|] eqn:E; auto.
+  destruct (Nat.eqb r cut) eqn:Eq; auto.
+  apply Nat.eqb_eq in Eq; subst r. apply Nat.le_antisymm.
+  - now apply oldest_greatest.
+  - apply oldest_reader. eapply nth_error_In; eassumption.
+Qed.
+
 Section Log.
 Context {A : Type}.
 

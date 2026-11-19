@@ -1,4 +1,4 @@
-From Stdlib Require Import List Arith.
+From Stdlib Require Import List Arith Lia.
 Import ListNotations.
 
 Section edits.
@@ -72,5 +72,52 @@ Proof.
   pose proof (back_with_prefix [] ss) as H; cbn in H; rewrite H.
   pose proof (back_with_prefix [] (map flip ss)) as E; cbn in E; rewrite E, flip_twice.
   reflexivity.
+Qed.
+(* Materialization concatenates each line's contents and recorded terminator. *)
+Definition flatten (lines : list (list A * list A)) :=
+  flat_map (fun line => fst line ++ snd line) lines.
+
+Theorem singleton_materialize contents :
+  flatten [(contents, [])] = contents.
+Proof. simpl. now rewrite !app_nil_r. Qed.
+Inductive tree :=
+| leaf (lines : list (list A * list A))
+| branch (left right : tree).
+
+Fixpoint contents (t : tree) : list A :=
+  match t with leaf lines => flatten lines | branch l r => contents l ++ contents r end.
+
+Fixpoint size (t : tree) : nat :=
+  match t with leaf lines => length (flatten lines) | branch l r => size l + size r end.
+
+Lemma size_contents t : size t = length (contents t).
+Proof. induction t; simpl; auto. now rewrite length_app, IHt1, IHt2. Qed.
+
+(* Overwrite only the slice of a preallocated buffer assigned to each leaf. *)
+Fixpoint fill (t : tree) (pos : nat) (buffer : list A) : list A :=
+  match t with
+  | leaf lines =>
+      firstn pos buffer ++ flatten lines ++ skipn (pos + size t) buffer
+  | branch l r => fill r (pos + size l) (fill l pos buffer)
+  end.
+
+Theorem fill_frame t prefix space suffix :
+  length space = size t ->
+  fill t (length prefix) (prefix ++ space ++ suffix) =
+    prefix ++ contents t ++ suffix.
+Proof.
+  revert prefix space suffix. induction t as [lines|l IHl r IHr]; intros pre space tail Hlen.
+  - cbn [fill contents]. rewrite take_span, <- Hlen, <- length_app, (app_assoc pre space tail), drop_span.
+    reflexivity.
+  - cbn [size] in Hlen. cbn [fill contents].
+    pose proof (firstn_skipn (size l) space) as Hsplit.
+    set (a := firstn (size l) space) in *.
+    set (b := skipn (size l) space) in *.
+    assert (Ha : length a = size l) by (unfold a; rewrite length_firstn; lia).
+    assert (Hb : length b = size r) by (unfold b; rewrite length_skipn; lia).
+    rewrite <- Hsplit. rewrite <- (app_assoc a b tail), IHl by exact Ha.
+    rewrite (app_assoc pre (contents l) (b ++ tail)).
+    rewrite (size_contents l), <- length_app, IHr by exact Hb.
+    now rewrite !app_assoc.
 Qed.
 End edits.

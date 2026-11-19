@@ -20,6 +20,24 @@ let check name expr =
 
 // Every ordered pair of disjoint ranges, including empty and adjacent edits.
 // Represent the witness with the original spans, independent of the F# section encoder.
+let materializationCases =
+    [ [("", "")]
+      [("plain", "")]
+      [("🙂" + string (char 0xDE42), "")]
+      [("left", "\r\n"); ("right", "")]
+      [("a", "\r"); ("", "\n"); ("", "")] ]
+for index, spans in List.indexed materializationCases do
+    let raw = spans |> List.map (fun (line, ending) -> line + ending) |> String.concat ""
+    let model = spans |> List.map (fun (line, ending) -> "(" + units line + ", " + units ending + ")") |> list
+    let actual = Text.toString (Text.ofString raw)
+    check $"materialize_{index}" $"@flatten N {model} = {units actual}"
+
+let manyLines = String.replicate 260 "λ\r\n" + string (char 0xD83D)
+let materialized = Text.toString (Text.ofString manyLines)
+lines.Add "Definition line_block : list (list N * list N) := repeat ([955%N], [13%N;10%N]) 130."
+lines.Add "Definition tree_fixture := branch (leaf line_block) (leaf (line_block ++ [([55357%N], [])]))."
+check "materialize_tree" ("fill tree_fixture 0 (repeat 0%N (size tree_fixture)) = " + units materialized)
+
 let source = "aλ🙂b"
 let doc = Text.ofString source
 let positions = [0..source.Length]
@@ -83,13 +101,13 @@ readers()
 
 // Probe DispatchAt on a fresh document per revision because accepted probes append.
 // Reading or disposing a cursor changes the next trim; neither trims immediately.
-let probe disposeSlow revision =
+let probe slowLast disposeSlow revision =
     use graph = new Graph()
     use activation = graph.Activate()
     let doc = Document.create Text.empty
     let makeReader () = Api.createRoot (fun owner -> owner, doc.Reader())
-    let first, slow = makeReader()
-    let second, fast = makeReader()
+    let a, b = makeReader(), makeReader()
+    let (first, slow), (second, fast) = if slowLast then b, a else a, b
     for seq in 1..5 do
         doc.Dispatch [Tx.userEvent "proof.tick"]
         if seq = 2 then slow.Read() |> ignore
@@ -104,7 +122,9 @@ let probe disposeSlow revision =
     let positions = if disposeSlow then "[4]" else "[2; 4]"
     let outcome = if accepted then "true" else "false"
     let group = if disposeSlow then "released" else "live"
-    check $"base_{group}_{revision}" $"Nat.leb (oldest 5 {positions}) {revision} = {outcome}"
-for disposed in [false; true] do
-    for revision in 0..5 do probe disposed revision
+    let order = if slowLast then "last" else "first"
+    check $"base_{order}_{group}_{revision}" $"Nat.leb (oldest 5 {positions}) {revision} = {outcome}"
+for slowLast in [false; true] do
+    for disposed in [false; true] do
+        for revision in 0..5 do probe slowLast disposed revision
 File.WriteAllLines(fsi.CommandLineArgs[1], lines)

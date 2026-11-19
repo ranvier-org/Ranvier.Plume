@@ -1012,40 +1012,69 @@ module internal Rope =
 
                 (concatOpt (Some head) (concatOpt middle (Some tail))).Value
 
+#if FABLE_COMPILER
+    let private collectText (root: Node) : string =
+        let builder = StringBuilder root.CharLength
+        let buffer = ArrayPool<char>.Shared.Rent 4096
+
+        let rec walk (node: Node) =
+            match node with
+            | Leaf leaf ->
+                for i = 0 to leaf.LineCount - 1 do
+                    let start = leaf.ByteOffsets[i]
+                    let length = leaf.ByteOffsets[i + 1] - start
+
+                    let exact = exactLine leaf i
+                    if not (isNull exact) then builder.Append(exact) |> ignore
+                    elif length > 0 then
+                        if length <= buffer.Length then
+                            let chars = Encoding.UTF8.GetChars (leaf.Utf8Bytes, start, length, buffer, 0)
+                            builder.Append (buffer, 0, chars) |> ignore
+                        else
+                            builder.Append (Encoding.UTF8.GetString (leaf.Utf8Bytes, start, length))
+                            |> ignore
+
+                    builder.Append (endingString leaf.EndingKinds[i]) |> ignore
+            | Branch b ->
+                walk b.Left
+                walk b.Right
+
+        try
+            walk root
+            builder.ToString ()
+        finally
+            ArrayPool<char>.Shared.Return buffer
+
+#else
+    let rec private fillText (target: Span<char>) (node: Node) =
+        match node with
+        | Branch b ->
+            fillText (target.Slice(0, b.Left.CharLength)) b.Left
+            fillText (target.Slice(b.Left.CharLength)) b.Right
+        | Leaf leaf ->
+            for i = 0 to leaf.LineCount - 1 do
+                let start = leaf.LineOffsets[i]
+                let length = leafLineCharLen leaf i
+                let chars = target.Slice(start, length)
+                let exact = exactLine leaf i
+                if not (isNull exact) then exact.AsSpan().CopyTo(chars)
+                else
+                    let first = leaf.ByteOffsets[i]
+                    let bytes = leaf.Utf8Bytes.AsSpan(first, leaf.ByteOffsets[i + 1] - first)
+                    Encoding.UTF8.GetChars(bytes, chars) |> ignore
+                (endingString leaf.EndingKinds[i]).AsSpan().CopyTo(target.Slice(start + length))
+
+    let private fillString = SpanAction<char,Node>(fun target node -> fillText target node)
+
+    let private collectText (root: Node) =
+        String.Create(root.CharLength, root, fillString)
+#endif
+
     let getText (root: Node) : string =
-        if root.CharLength = 0 then
-            ""
-        else
-            let builder = StringBuilder root.CharLength
-            let buffer = ArrayPool<char>.Shared.Rent 4096
-
-            let rec walk (node: Node) =
-                match node with
-                | Leaf leaf ->
-                    for i = 0 to leaf.LineCount - 1 do
-                        let start = leaf.ByteOffsets[i]
-                        let length = leaf.ByteOffsets[i + 1] - start
-
-                        let exact = exactLine leaf i
-                        if not (isNull exact) then builder.Append(exact) |> ignore
-                        elif length > 0 then
-                            if length <= buffer.Length then
-                                let chars = Encoding.UTF8.GetChars (leaf.Utf8Bytes, start, length, buffer, 0)
-                                builder.Append (buffer, 0, chars) |> ignore
-                            else
-                                builder.Append (Encoding.UTF8.GetString (leaf.Utf8Bytes, start, length))
-                                |> ignore
-
-                        builder.Append (endingString leaf.EndingKinds[i]) |> ignore
-                | Branch b ->
-                    walk b.Left
-                    walk b.Right
-
-            try
-                walk root
-                builder.ToString ()
-            finally
-                ArrayPool<char>.Shared.Return buffer
+        match root with
+        | _ when root.CharLength = 0 -> ""
+        | Leaf leaf when leaf.LineCount = 1 && leaf.EndingKinds[0] = EndingNone -> leafLineText leaf 0
+        | _ -> collectText root
 
     let contentEquals (a: Node) (b: Node) : bool =
         if obj.ReferenceEquals (a, b) then
