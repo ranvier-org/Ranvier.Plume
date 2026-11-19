@@ -2,8 +2,8 @@
 /// history memory, loading and change application. A scripted mode creates its window hidden and never shows it.
 module EditorShowcase.Harness
 
-// The display's mode is read through a native pointer.
-#nowarn "9"
+// The display's mode, SDL's events and the screen's pixels are read and written through native pointers.
+#nowarn "9" "51"
 
 open System
 open System.Collections.Generic
@@ -32,7 +32,7 @@ type Mode =
     | Apply
     | Profile
     | Writes
-    | Tour
+    | Tour of picture: string
 
 type Options =
     { Mode: Mode
@@ -45,7 +45,9 @@ type Options =
       /// The file the window opens with, as an index of the explorer.
       File: int
       /// False to open the window with the scroll tour stopped.
-      Tour: bool }
+      Tour: bool
+      /// `--tour` with its window shown on the desktop.
+      Shown: bool }
 
 let usage =
     """Editor showcase on Ranvier.Plume
@@ -60,6 +62,9 @@ let usage =
   dotnet run -c Release -- --profile    time typing and scrolling with each feature of the text view switched off
   dotnet run -c Release -- --writes     list the writes a keystroke and a scroll make to the page
   dotnet run -c Release -- --tour       run the app as its window runs it, tour on, with no window shown
+  dotnet run -c Release -- --tour --shown <picture.png>
+                                        the same with the window shown for the length of the run, and what the
+                                        screen showed of it saved as a picture
 
 Options
   --size <w>x<h>   window size in CSS pixels (default 1280x800)
@@ -79,7 +84,8 @@ let parse (argv: string[]) : Result<Options, string> =
         | "--apply" :: tail -> go { options with Mode = Apply } tail
         | "--profile" :: tail -> go { options with Mode = Profile } tail
         | "--writes" :: tail -> go { options with Mode = Writes } tail
-        | "--tour" :: tail -> go { options with Mode = Tour } tail
+        | "--tour" :: "--shown" :: path :: tail -> go { options with Mode = Tour path; Shown = true } tail
+        | "--tour" :: tail -> go { options with Mode = Tour "" } tail
         | "--size" :: size :: tail ->
             match size.Split 'x' with
             | [| w; h |] ->
@@ -102,7 +108,7 @@ let parse (argv: string[]) : Result<Options, string> =
             | _ -> Error $"--open takes 0, 1 or 2, not '{index}'"
         | other :: _ -> Error $"unknown argument '{other}'"
 
-    go { Mode = Interactive; Width = WindowW; Height = WindowH; Frames = 240; Lines = 3; File = 0; Tour = true } (List.ofArray argv)
+    go { Mode = Interactive; Width = WindowW; Height = WindowH; Frames = 240; Lines = 3; File = 0; Tour = true; Shown = false } (List.ofArray argv)
 
 /// A scripted run that found something wrong. The hot reload host evaluates this file's functions in F#
 /// Interactive, where a private exception is out of reach and `Failed` is a case of Ranvier's `Reading`.
@@ -466,6 +472,154 @@ let private writes (options: Options) =
         report "typing" 20 (fun () -> graph.Run(fun () -> Commands.insertText "x" editor |> ignore))
         report $"lines x{options.Lines}" 20 (fun () -> graph.Run(fun () -> view.ScrollBy(float options.Lines * lineHeight))))
 
+/// The app's SDL window and the desktop around it: the mouse as SDL reports it, and what the screen shows.
+/// Not private: the hot reload host evaluates this file's functions in F# Interactive, where a private module is
+/// out of reach.
+module Desktop =
+    open System.Runtime.InteropServices
+    open Microsoft.FSharp.NativeInterop
+    open SDL
+
+    /// The one SDL window the process has open.
+    let private window () : nativeptr<SDL_Window> =
+        let mutable count = 0
+        let windows = SDL3.SDL_GetWindows &&count
+
+        try
+            if count <> 1 then
+                failwithf "%d SDL windows are open; a scripted run has one" count
+
+            NativePtr.read windows
+        finally
+            SDL3.SDL_free(NativePtr.toNativeInt windows)
+
+    /// True when the desktop shows the window: it is neither hidden nor minimised.
+    let isShown () : bool =
+        let flags = SDL3.SDL_GetWindowFlags(window ())
+        not (flags.HasFlag SDL_WindowFlags.SDL_WINDOW_HIDDEN) && not (flags.HasFlag SDL_WindowFlags.SDL_WINDOW_MINIMIZED)
+
+    /// Where the window's content is on the screen, and its size, in pixels.
+    let bounds () : struct (int * int * int * int) =
+        let mutable x = 0
+        let mutable y = 0
+        let mutable width = 0
+        let mutable height = 0
+        SDL3.SDL_GetWindowPosition(window (), &&x, &&y) |> ignore
+        SDL3.SDL_GetWindowSizeInPixels(window (), &&width, &&height) |> ignore
+        struct (x, y, width, height)
+
+    let private push (event: SDL_Event) =
+        let mutable pushed = event
+        SDL3.SDL_PushEvent &&pushed |> ignore
+
+    /// The pointer at a point of the window, in pixels, with the left button held or not: an event on SDL's queue,
+    /// where the desktop's mouse puts its own.
+    let move (x: float32) (y: float32) (held: bool) =
+        let mutable event = SDL_Event()
+        event.motion.``type`` <- SDL_EventType.SDL_EVENT_MOUSE_MOTION
+        event.motion.windowID <- SDL3.SDL_GetWindowID(window ())
+        event.motion.state <- (if held then SDL_MouseButtonFlags.SDL_BUTTON_LMASK else Unchecked.defaultof<SDL_MouseButtonFlags>)
+        event.motion.x <- x
+        event.motion.y <- y
+        push event
+
+    /// The left button pressed or released at a point of the window.
+    let button (x: float32) (y: float32) (down: bool) =
+        let mutable event = SDL_Event()
+        event.button.``type`` <- (if down then SDL_EventType.SDL_EVENT_MOUSE_BUTTON_DOWN else SDL_EventType.SDL_EVENT_MOUSE_BUTTON_UP)
+        event.button.windowID <- SDL3.SDL_GetWindowID(window ())
+        event.button.button <- 1uy
+        event.button.down <- SDLBool.op_Implicit down
+        event.button.clicks <- 1uy
+        event.button.x <- x
+        event.button.y <- y
+        push event
+
+    /// The wheel turned `notches` towards the user with the pointer at a point. SDL counts a turn away as positive.
+    let wheel (x: float32) (y: float32) (notches: float32) =
+        let mutable event = SDL_Event()
+        event.wheel.``type`` <- SDL_EventType.SDL_EVENT_MOUSE_WHEEL
+        event.wheel.windowID <- SDL3.SDL_GetWindowID(window ())
+        event.wheel.y <- -notches
+        event.wheel.mouse_x <- x
+        event.wheel.mouse_y <- y
+        push event
+
+    [<Struct; StructLayout(LayoutKind.Sequential)>]
+    type private BitmapHeader =
+        val mutable Size: uint32
+        val mutable Width: int
+        val mutable Height: int
+        val mutable Planes: uint16
+        val mutable BitCount: uint16
+        val mutable Compression: uint32
+        val mutable SizeImage: uint32
+        val mutable XPelsPerMeter: int
+        val mutable YPelsPerMeter: int
+        val mutable ColorsUsed: uint32
+        val mutable ColorsImportant: uint32
+
+    [<DllImport("user32.dll")>]
+    extern nativeint private GetDC(nativeint window)
+
+    [<DllImport("user32.dll")>]
+    extern int private ReleaseDC(nativeint window, nativeint context)
+
+    [<DllImport("gdi32.dll")>]
+    extern nativeint private CreateCompatibleDC(nativeint context)
+
+    [<DllImport("gdi32.dll")>]
+    extern nativeint private CreateCompatibleBitmap(nativeint context, int width, int height)
+
+    [<DllImport("gdi32.dll")>]
+    extern nativeint private SelectObject(nativeint context, nativeint item)
+
+    [<DllImport("gdi32.dll")>]
+    extern bool private BitBlt(nativeint target, int x, int y, int width, int height, nativeint source, int sourceX, int sourceY, uint32 operation)
+
+    [<DllImport("gdi32.dll")>]
+    extern int private GetDIBits(nativeint context, nativeint bitmap, uint32 start, uint32 lines, byte[] bits, BitmapHeader& header, uint32 usage)
+
+    [<DllImport("gdi32.dll")>]
+    extern bool private DeleteObject(nativeint item)
+
+    [<DllImport("gdi32.dll")>]
+    extern bool private DeleteDC(nativeint context)
+
+    /// The pixels the screen shows in a rectangle, as RGBA rows from the top. Windows only.
+    let screen (x: int) (y: int) (width: int) (height: int) : byte[] =
+        let desktop = GetDC 0n
+        let memory = CreateCompatibleDC desktop
+        let bitmap = CreateCompatibleBitmap(desktop, width, height)
+        let before = SelectObject(memory, bitmap)
+
+        try
+            // SRCCOPY
+            BitBlt(memory, 0, 0, width, height, desktop, x, y, 0x00CC0020u) |> ignore
+            SelectObject(memory, before) |> ignore
+            let mutable header = BitmapHeader()
+            header.Size <- 40u
+            header.Width <- width
+            // A negative height asks for rows from the top.
+            header.Height <- -height
+            header.Planes <- 1us
+            header.BitCount <- 32us
+            let pixels = Array.zeroCreate<byte> (width * height * 4)
+            GetDIBits(memory, bitmap, 0u, uint32 height, pixels, &header, 0u) |> ignore
+
+            // Blue, green, red to red, green, blue; the screen has no transparency.
+            for offset in 0..4 .. pixels.Length - 4 do
+                let blue = pixels[offset]
+                pixels[offset] <- pixels[offset + 2]
+                pixels[offset + 2] <- blue
+                pixels[offset + 3] <- 255uy
+
+            pixels
+        finally
+            DeleteObject bitmap |> ignore
+            DeleteDC memory |> ignore
+            ReleaseDC(0n, desktop) |> ignore
+
 /// The refresh rate SDL reports for the primary display, in hertz; 0 when it reports none.
 let private displayHertz () : float =
     let mode = SDL.SDL3.SDL_GetCurrentDisplayMode(SDL.SDL3.SDL_GetPrimaryDisplay())
@@ -475,12 +629,12 @@ let private displayHertz () : float =
     else
         float (Microsoft.FSharp.NativeInterop.NativePtr.read mode).refresh_rate
 
-/// The app as its window runs it, tour on, with no window shown. The page is given a frame whenever it asks for
-/// one, as a shown window gives one at each refresh of its display, and the mouse, the wheel and the keys go in
-/// through the host as a window sends them. Each line printed is something that held; the first that does not
-/// ends the run.
-let private tour (options: Options) =
-    say "Editor showcase on Ranvier.Plume --tour"
+/// The app as its window runs it, tour on. The window is hidden unless the run was asked to show it; a shown
+/// window is closed when the run ends. The mouse, the wheel and the keys go in through SDL's queue and through
+/// the host, as a window receives and sends them. Each line printed is something that held; the first that does
+/// not ends the run.
+let private tour (options: Options) (picture: string) =
+    say (if options.Shown then "Editor showcase on Ranvier.Plume --tour --shown" else "Editor showcase on Ranvier.Plume --tour")
 
     try
         use window = Window.Create(Title, options.Width, options.Height, hidden = true)
@@ -551,8 +705,16 @@ let private tour (options: Options) =
                 let rect = element.getBoundingClientRect ()
                 host.Click(int (rect.left + rect.width / 2.0), int (rect.top + rect.height / 2.0)) |> ignore
 
+            if options.Shown then
+                window.Show()
+                window.Present()
+
             // The first refreshes mount the text view and size its rows.
             refreshes 12 |> ignore
+
+            if options.Shown then
+                let struct (x, y, width, height) = Desktop.bounds ()
+                holds $"the window is shown on the desktop: {width} x {height} pixels at ({x}, {y})" (Desktop.isShown ())
 
             let view () =
                 match currentView state with
@@ -613,6 +775,77 @@ let private tour (options: Options) =
             refreshes 2 |> ignore
             holds "a key typed after the click inserts one character" (graph.Run(fun () -> editor.Text.Value.Length) = length + 1)
 
+            // The desktop's mouse, as SDL reports it: events on SDL's queue, read by the window's own loop.
+            let struct (pixelWidth, _) = window.PixelSize
+            let scale = float32 pixelWidth / float32 options.Width
+            let at (x: float) (y: float) = struct (float32 (text.left + x) * scale, float32 (text.top + y) * scale)
+
+            /// Two turns of the window's loop more than a refresh apart: the window holds a move and a turn of the
+            /// wheel until a refresh has passed since the one before.
+            let turns () =
+                refresh () |> ignore
+                Threading.Thread.Sleep 40
+                refresh () |> ignore
+
+            let struct (pressX, pressY) = at 300.0 150.0
+            let struct (dragX, dragY) = at 420.0 230.0
+            let pressed = graph.Run(fun () -> (view ()).PosAtCoords 300.0 150.0)
+            let dragged = graph.Run(fun () -> (view ()).PosAtCoords 420.0 230.0)
+            Desktop.move pressX pressY false
+            turns ()
+            Desktop.button pressX pressY true
+            turns ()
+            Desktop.move dragX dragY true
+            turns ()
+            Desktop.button dragX dragY false
+            turns ()
+            let main = graph.Run(fun () -> editor.Selection.Value.Main)
+            holds $"a press, a drag and a release from SDL's queue select from {pressed} to {dragged}" (main.Anchor = pressed && main.Head = dragged && pressed <> dragged)
+            let wheeled = top ()
+            Desktop.wheel pressX pressY 3.0f
+            turns ()
+            holds "three notches of the wheel from SDL's queue scroll 120 CSS px" (top () = wheeled + 120.0)
+            let track = ((doc.querySelector "[data-plume]").parentElement.lastChild :?> Element).getBoundingClientRect ()
+            let trackX = float32 (track.left + track.width / 2.0) * scale
+            let trackY = float32 (track.top + track.height / 4.0) * scale
+            Desktop.move trackX trackY false
+            turns ()
+            Desktop.button trackX trackY true
+            turns ()
+            Desktop.button trackX trackY false
+            turns ()
+            let lines = graph.Run(fun () -> editor.Text.Value.Lines)
+            let share = top () / (float lines * (view ()).Theme.LineHeight)
+            holds $"a press a quarter of the way down the scrollbar's track moves the text to {fixed3 (100.0 * share)} percent of the file" (share > 0.20 && share < 0.28)
+
+            if options.Shown then
+                // What the screen shows where the window is, beside what the window composited.
+                window.Present()
+                refreshes 6 |> ignore
+                let struct (x, y, width, height) = Desktop.bounds ()
+                let shown = Desktop.screen x y width height
+                let struct (compositedWidth, compositedHeight, composited) = window.ReadPixels()
+                Png.PngEncoder.saveRgba8 picture width height shown
+                say $"  saved    {Path.GetFullPath picture} ({width} x {height} pixels, copied from the screen at ({x}, {y}))"
+
+                if compositedWidth = width && compositedHeight = height then
+                    let mutable close = 0
+
+                    for pixel in 0 .. width * height - 1 do
+                        let offset = pixel * 4
+
+                        if
+                            abs (int shown[offset] - int composited[offset]) <= 8
+                            && abs (int shown[offset + 1] - int composited[offset + 1]) <= 8
+                            && abs (int shown[offset + 2] - int composited[offset + 2]) <= 8
+                        then
+                            close <- close + 1
+
+                    let share = float close / float (width * height)
+                    holds $"the screen shows what the window composited: {fixed3 (100.0 * share)} percent of its pixels are within 8 of 255 on each channel" (share > 0.9)
+                else
+                    say $"  seen     the window composited {compositedWidth} x {compositedHeight} pixels and the screen copy is {width} x {height}; they are not compared"
+
             // F5 in the text starts the tour again.
             host.Key(0, "F5", "F5", null, 0, false) |> ignore
             host.Key(1, "F5", "F5", null, 0, false) |> ignore
@@ -627,7 +860,7 @@ let private tour (options: Options) =
             refreshes 6 |> ignore
             holds "a click on a file opens it" (state.Active.Peek = 1)
             holds $"and its view is mounted with its text: {grouped (graph.Run(fun () -> (view ()).Editor.Text.Value.Lines))} lines" (graph.Run(fun () -> (view ()).Editor.Text.Value.Lines) = session.Files[1].Count)
-            say "  The window was created hidden and never shown."
+            say (if options.Shown then "  The window was shown for the length of this run and is closed with it." else "  The window was created hidden and never shown.")
             0
         finally
             graph.Run(fun () -> mounted.Dispose())
@@ -778,7 +1011,7 @@ let run (options: Options) : int =
         | Apply -> apply ()
         | Profile -> profile options
         | Writes -> writes options
-        | Tour -> tour options
+        | Tour picture -> tour options picture
         | Interactive -> invalidOp "the window is opened by Program"
     with
     | RunFailed reason ->

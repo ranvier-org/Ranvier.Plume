@@ -12,7 +12,8 @@ open EditorShowcase.Harness
 
 let private propsOf (window: Window) = { Window = window; Session = Session() }
 
-/// Opens the app's window and runs it until it is closed. This is the only place a window is shown.
+/// Opens the app's window and runs it until it is closed. A window is shown here, and by `--tour --shown` for
+/// the length of its scripted run.
 let private runWindow (options: Options) =
     use window = Window.Create(Title, options.Width, options.Height, hidden = true)
     let graph = window.Graph

@@ -293,7 +293,23 @@ facet's default.
 **Every check of the plan ran, in the windows the plan names.** Its global constraints say "Bench, capture and
 smoke windows are created hidden"; task 8 names a hidden window for its spike and its smoke test, and task 9 has
 `--shot` and has `--bench`, `--memory` and `--load` "run to completion hidden". No step of the plan shows a
-window, and none was shown.
+window.
+
+**In a shown window, with your say (2026-11-19).** `samples/EditorShowcase --tour --shown` ran once with the
+sample's window on the desktop, 1280 x 800 pixels at (320, 128), and closed it 5.9 s after the run started
+(**measured here**, one run, 21 checks held, exit code 0):
+
+- The tour ran on the frames the app asked for, and then on the window's own loop for 2 s: 167.4 frames a second
+  by the app's count, on a display that reports 164.9 Hz. The same loop with the window hidden ran 107.8 a
+  second, one frame every one and a half refreshes.
+- A click on the tour's button stopped it and the app came to rest; the wheel, a click in the text and a typed
+  key did what they do.
+- A press, a drag and a release put on SDL's queue selected the text between the two points; three notches of
+  the wheel scrolled 120 CSS px; a press a quarter of the way down the scrollbar's track moved the text to 23.9%
+  of the file.
+- A copy of the screen where the window was agrees with what the window composited in 99.996% of its pixels
+  (within 8 of 255 on each channel). The copy is `shown-window.png`, beside this file.
+- F5 started the tour again, and a click on a tab opened its file.
 
 **From the desktop's events inward, the paths a shown window uses ran too**, in windows created hidden:
 
@@ -318,7 +334,9 @@ window, and none was shown.
   Then, on frames given as the page asked for them: each of 120 refreshes ran a frame the app asked for; a click
   on the tour's button stopped it, after which 1 of 60 refreshes ran a frame and the text stayed; the wheel, a
   click in the text and a typed key did what they do; F5 started the tour again; a click on a tab opened its file
-  (**measured here**: seven runs, 16 checks each, exit code 0; the figures are one run's).
+  The same run puts a press, a drag, a release, the wheel and a press on the scrollbar's track on SDL's queue
+  (**measured here**: hidden runs of 16 checks, and of 19 since the SDL events were added, all with exit code 0;
+  the figures are one run's).
 - **Hot reload.** `dotnet fsi --exec build.fsx -- dev` runs the sample under the hot reload host
   (`dotnet run -- dev`) with the host's own `-hidden` option, which keeps its window off screen, on a copy of the
   sample's sources. The host's window loop ran the tour: the first step found the text at line 736. The 14 steps
@@ -331,9 +349,8 @@ window, and none was shown.
 
 **Outside the plan, and not run:**
 
-- A window on your screen. What only that adds is the picture itself on a display and the operating system's
-  delivery of input to SDL; everything after SDL's queue ran. The workspace's rule is that scripted runs use
-  hidden windows and that the app is launched when you ask for it.
+- The operating system's own delivery of mouse and key input to SDL. The events were put on SDL's queue; moving
+  your real pointer from a script was not in what you agreed to.
 - A traced build (`-p:RanvierTrace=true`): the plan asks only that tracing is off by default, which it is. Three
   of the traced packages it needs are not in this machine's package cache.
 - A Fable build, packaging and CI: not in phase 1.
@@ -371,3 +388,6 @@ reports 0 errors.
 
 `dotnet fsi --exec build.fsx -- dev`: the sample under the hot reload host, window off screen: 14 of 14 steps
 pass.
+
+`samples/EditorShowcase --tour`: 19 of 19 checks, hidden. `--tour --shown <picture>` shows the window for the
+length of the run; it is not part of a gate, and ran once.
