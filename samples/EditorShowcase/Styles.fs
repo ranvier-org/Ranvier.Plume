@@ -255,7 +255,8 @@ let statusMode =
 
 /// Page-level rules that no element in the view owns.
 let page =
-    [ Rule.style
+    [ Rule.style (Selector.unsafeFromText ".unit-diagnostic") [ Css.color accent ]
+      Rule.style
           (Selector.unsafeFromText "html,body")
           [ Css.margin (Css.px 0.)
             Css.padding (Css.px 0.)

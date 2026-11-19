@@ -4,7 +4,7 @@ A text editor as a fold over a log of edits, built on [Ranvier](https://github.c
 
 - `Ranvier.Plume`: the state. An immutable rope, change sets with position mapping, selections, transactions,
   facets, state fields, compartments, history, commands and keymaps. No DOM dependency.
-- `Ranvier.Plume.View`: the `EditorView` component for `Ranvier.View`.
+- `Ranvier.Plume.View`: the `EditorView` component for `Ranvier.View`, with native IME composition, clipboard input, accessible selection, and typed decorations with hover templates.
 
 A `Document` is one file: its log of transactions, its saved text and its current text. An `Editor` is one view of
 a document, with its own selection and extensions. Consumers read through Ranvier memos.
@@ -75,4 +75,4 @@ dotnet run -c Release --project samples/EditorShowcase -- --tour --shown out.png
 dotnet run -c Release --project samples/EditorShowcase -- --shot out.png
 ```
 
-The phase 1 measurements are in [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
+Use the [full-feature editor baseline](docs/bench/full-feature-baseline.md) for typing and scrolling comparisons. The [phase 1 measurements](docs/ACCEPTANCE.md) record the original acceptance workloads.

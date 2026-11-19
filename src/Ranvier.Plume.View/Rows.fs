@@ -15,6 +15,9 @@ module ViewFacets =
     let private first (fallback: 'T) : 'T[] -> 'T =
         fun values -> if values.Length > 0 then values[0] else fallback
 
+    /// The accessible name of the native editing control.
+    let accessibleName: Facet<string, string> = Facet.define (first "Editor text")
+
     /// True when a line keeps its row element for as long as it stays in the row pool. Default true.
     let recycleRows: Facet<bool, bool> = Facet.define (first true)
     /// True when the sheet is promoted to a compositor layer. Default false.

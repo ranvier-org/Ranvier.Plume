@@ -258,6 +258,25 @@ module Commands =
     let insertText (text: string) : Command =
         ofState (edit "input.type" (fun _ range -> ValueSome (struct (range.From, range.To, text))))
 
+    /// Pastes one line per range when their counts match. Otherwise each range receives the full text.
+    let pasteText (text: string) : Command =
+        ofState (fun state dispatch ->
+            if String.IsNullOrEmpty text then false
+            else
+                let ranges = state.Selection.Ranges
+                let parts =
+                    if ranges.Length > 1 then text.Replace("\r\n", "\n").Replace('\r', '\n').Split '\n'
+                    else Array.empty
+                let mutable index = 0
+                edit "input.paste" (fun _ range ->
+                    let part = if parts.Length = ranges.Length then parts[index] else text
+                    index <- index + 1
+                    ValueSome (struct (range.From, range.To, part))) state dispatch)
+
+    /// Deletes selected text as one cut transaction.
+    let cutSelection: Command =
+        ofState (edit "delete.cut" (fun _ range -> ValueSome (struct (range.From, range.To, ""))))
+
     /// Replaces every range by the state's line separator.
     let insertNewline: Command =
         ofState (edit "input" (fun state range -> ValueSome (struct (range.From, range.To, EditorState.facet EditorState.lineSeparator state))))

@@ -2,11 +2,26 @@ module Ranvier.Plume.View.Tests.ViewTests
 
 open System
 open Expecto
+open Ranvier.View.Dsl
 open Ranvier
 open Ranvier.Dom
 open Ranvier.Plume
 open Ranvier.Plume.View
 open Ranvier.Plume.View.Tests.Host
+
+module private AX =
+    open System.Runtime.InteropServices
+
+    [<DllImport("RanvierWebCoreHost")>]
+    extern int rv_host_set_accessibility(nativeint host, int enabled, nativeint callback, nativeint context)
+    [<DllImport("RanvierWebCoreHost")>]
+    extern nativeint rv_host_ax_focus(nativeint host)
+    [<DllImport("RanvierWebCoreHost")>]
+    extern int rv_ax_text_selection(nativeint node, int& first, int& last)
+    [<DllImport("RanvierWebCoreHost")>]
+    extern int rv_ax_text_set_selection(nativeint node, int first, int last)
+    [<DllImport("RanvierWebCoreHost")>]
+    extern void rv_ax_release(nativeint node)
 
 let private manyLines (count: int) = Seq.init count (fun index -> "line " + string index)
 
@@ -730,6 +745,159 @@ let tests =
                     mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.selection (EditorSelection.single 3 3) ])
                     mounted.Step ()
                     Expect.isTrue (lit ()) "a move of the cursor lights it at once")
+
+            testCase "native selection, composition and clipboard share the editor transaction path"
+            <| fun () ->
+                withView [ "abc" ] standard 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    host.SetFocused true
+                    mounted.Run(fun () ->
+                        mounted.Editor.Dispatch [ Tx.selection (EditorSelection.single 2 1) ]
+                        mounted.View.Focus())
+                    let area = mounted.Dom.activeElement :?> HTMLTextAreaElement
+                    Expect.equal (area.value, area.selectionStart, area.selectionEnd, area.selectionDirection) ("abc", 1u, 2u, "backward") "accessible selection"
+                    let plain () = Text.toString mounted.Editor.Text.Value
+                    host.SetComposition("仮", 1, 1)
+                    Expect.equal (plain ()) "abc" "preedit stays provisional"
+                    host.CommitComposition "仮名"
+                    mounted.Step()
+                    Expect.equal (plain ()) "a仮名c" "commit once"
+                    let copied = ResizeArray<string>()
+                    host.SetClipboard((fun kind data _ -> if kind = "text/plain" then copied.Add data), (fun () -> [struct ("text/plain", "xy")]))
+                    mounted.Run(fun () -> mounted.Editor.Dispatch [Tx.selection (EditorSelection.single 1 3)])
+                    host.Key(0, "c", "KeyC", null, 2, false) |> ignore
+                    Expect.contains copied "仮名" "native copy"
+                    host.Key(0, "x", "KeyX", null, 2, false) |> ignore
+                    mounted.Step()
+                    Expect.equal (plain ()) "ac" "cut"
+                    host.Key(0, "v", "KeyV", null, 2, false) |> ignore
+                    mounted.Step()
+                    Expect.equal (plain ()) "axyc" "paste")
+
+            testCase "the native accessibility tree reads and sets the Plume selection"
+            <| fun () ->
+                withView ["abcdef"] standard 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    host.SetFocused true
+                    mounted.Run(fun () ->
+                        mounted.Editor.Dispatch [Tx.selection (EditorSelection.single 1 4)]
+                        mounted.View.Focus())
+                    let existing = AX.rv_host_ax_focus host.Handle
+                    let enable = existing = 0n
+                    if enable then
+                        Expect.equal (AX.rv_host_set_accessibility(host.Handle, 1, 0n, 0n)) 0 "enable accessibility"
+                    let node = if enable then AX.rv_host_ax_focus host.Handle else existing
+                    try
+                        Expect.notEqual node 0n "focused accessible text control"
+                        let mutable first, last = 0, 0
+                        let status = AX.rv_ax_text_selection(node, &first, &last)
+                        Expect.isGreaterThanOrEqual status 0 "text selection available"
+                        Expect.equal (first, last) (1, 4) "reported selection"
+                        Expect.equal (AX.rv_ax_text_set_selection(node, 2, 5)) 0 "assistive selection action"
+                        mounted.Step()
+                        let main = mounted.Editor.Selection.Value.Main
+                        Expect.equal (main.From, main.To) (2, 5) "selection reaches Plume"
+                    finally
+                        if node <> 0n then AX.rv_ax_release node
+                        if enable then AX.rv_host_set_accessibility(host.Handle, 0, 0n, 0n) |> ignore)
+
+            testCase "assistive selection maps native LF offsets back into a CRLF document"
+            <| fun () ->
+                withView [""] standard 800 (fun mounted ->
+                    mounted.Window.Host.SetFocused true
+                    mounted.Run(fun () ->
+                        mounted.Editor.Dispatch [ insert 0 "a\r\nb\r\nc"; Tx.selection (EditorSelection.single 3 3) ]
+                        mounted.View.Focus())
+                    let area = mounted.Dom.activeElement :?> HTMLTextAreaElement
+                    Expect.equal area.value "a\nb\nc" "native context"
+                    area.setSelectionRange(1u, 4u, "backward")
+                    mounted.Step()
+                    let main = mounted.Editor.Selection.Value.Main
+                    Expect.equal (main.Anchor, main.Head) (6, 1) "selection returned to the editor")
+
+            testCase "multi-range cut puts every removed range on the clipboard"
+            <| fun () ->
+                withView ["abcdef"] (EditorState.allowMultipleSelections.Of true :: standard) 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    host.SetFocused true
+                    let copied = ResizeArray<string>()
+                    host.SetClipboard((fun kind data _ -> if kind = "text/plain" then copied.Add data), (fun () -> []))
+                    mounted.Run(fun () ->
+                        mounted.Editor.Dispatch [ Tx.selection (EditorSelection.create [EditorSelection.range 0 1; EditorSelection.range 3 5] 1) ]
+                        mounted.View.Focus())
+                    host.Key(0, "x", "KeyX", null, 2, false) |> ignore
+                    mounted.Step()
+                    Expect.contains copied "a\nde" "joined selections"
+                    Expect.equal (Text.toString mounted.Editor.Text.Value) "bcf" "both cuts"
+                    host.SetClipboard((fun _ _ _ -> ()), (fun () -> [struct ("text/plain", copied[0])]))
+                    host.Key(0, "v", "KeyV", null, 2, false) |> ignore
+                    mounted.Step()
+                    Expect.equal (Text.toString mounted.Editor.Text.Value) "abcdef" "paste distributes one line to each caret")
+
+            testCase "a read-only native selection can be copied without changing the document"
+            <| fun () ->
+                withView ["abc"] (EditorState.readOnly.Of true :: standard) 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    host.SetFocused true
+                    let written = ResizeArray<string>()
+                    host.SetClipboard((fun mime value _ -> if mime = "text/plain" then written.Add value), (fun () -> [struct ("text/plain", "x")]))
+                    mounted.Run(fun () ->
+                        mounted.Editor.Dispatch [Tx.selection (EditorSelection.single 0 2)]
+                        mounted.View.Focus())
+                    let area = mounted.Dom.activeElement :?> HTMLTextAreaElement
+                    Expect.isTrue area.readOnly "native accessibility reports read-only"
+                    host.Key(0, "c", "KeyC", null, 2, false) |> ignore
+                    host.Key(0, "v", "KeyV", null, 2, false) |> ignore
+                    host.Type("z", "KeyZ", "z")
+                    mounted.Step()
+                    Expect.contains written "ab" "copy"
+                    Expect.equal (Text.toString mounted.Editor.Text.Value) "abc" "editing suppressed")
+
+            testCase "composition cancellation and concurrent edits do not insert the preedit"
+            <| fun () ->
+                withView [ "abc" ] standard 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    host.SetFocused true
+                    mounted.Run(fun () -> mounted.View.Focus())
+                    host.SetComposition("仮", 1, 1)
+                    host.CancelComposition()
+                    mounted.Step()
+                    Expect.equal (Text.toString mounted.Editor.Text.Value) "abc" "cancel"
+                    host.SetComposition("仮", 1, 1)
+                    mounted.Run(fun () -> mounted.Editor.Dispatch [insert 3 "!"])
+                    host.CommitComposition "名"
+                    mounted.Step()
+                    Expect.equal (Text.toString mounted.Editor.Text.Value) "abc!" "stale commit")
+
+            testCase "typed decoration hover follows its visible range"
+            <| fun () ->
+                let field = StateField.define {
+                    Create = fun _ -> RangeSet.ofRanges [1, 4, "first diagnostic"]
+                    Update = fun old tx -> Decoration.mapUntouched (ChangeSet.desc tx.Changes) old
+                }
+                let tip = span () { fun (read: unit -> string) -> read() }
+                let underline = Decoration.underline "sample" (fun v -> v.Editor.Field(field).Value) tip
+                withView (manyLines 500) [StateField.extension field; underline] 800 (fun mounted ->
+                    let mark () = mounted.Query "[data-pm=decoration]"
+                    let selector = "[data-pm=decoration-hover]"
+                    Expect.equal (mark()).Length 1 "one visible segment"
+                    let rect = ((mark())[0]).getBoundingClientRect()
+                    Expect.equal (shown mounted selector).Length 0 "hover starts hidden"
+                    mounted.Window.Host.Mouse(0, int rect.left + 1, int rect.top + 2, -1, 0, 0) |> ignore
+                    mounted.Step()
+                    Expect.equal (shown mounted selector).Length 1 "pointer reveals the template"
+                    let tooltip = (mounted.Query selector)[0]
+                    Expect.equal tooltip.textContent "first diagnostic" "typed payload"
+                    mounted.Run(fun () -> mounted.View.ScrollTo 4000.)
+                    mounted.Step()
+                    Expect.equal (mark()).Length 0 "recycling removes the mark and its hover"
+                    mounted.Run(fun () -> mounted.Editor.Dispatch [insert 1 "xx"]; mounted.View.ScrollTo 0.)
+                    mounted.Step()
+                    let moved = ((mark())[0]).getBoundingClientRect()
+                    Expect.isLessThan (abs (moved.left - rect.left - 2. * mounted.View.CharWidth.Value)) 0.04 "boundary insertion moves the underline within layout rounding"
+                    mounted.Run(fun () -> mounted.Editor.Dispatch [insert 4 "x"])
+                    mounted.Step()
+                    Expect.equal (mark()).Length 0 "an interior edit invalidates the diagnostic")
 
             testCase "keys run the keymap and printable keys insert"
             <| fun () ->

@@ -151,7 +151,14 @@ type Document internal (config: DocumentConfig) =
         if start >= log.Count then
             Array.empty
         else
+#if FABLE_COMPILER
             log.GetRange(start, log.Count - start).ToArray ()
+#else
+            let count = log.Count - start
+            let batch = Array.zeroCreate<Transaction> count
+            log.CopyTo(start, batch, 0, count)
+            batch
+#endif
 
     /// A cursor at the head, removed when the current owner is disposed.
     member internal _.RegisterReader() : ReaderCursor =

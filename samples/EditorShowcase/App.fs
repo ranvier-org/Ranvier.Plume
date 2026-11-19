@@ -32,6 +32,16 @@ let StatLabels =
        "frame work"
        "frames / s" |]
 
+let private diagnosticHover: TemplateView<unit -> Diagnostic> =
+    span (span.style "padding:3px 8px;border:1px solid currentColor") {
+        strong () { fun read -> (read()).Code }
+        "  "
+        fun read -> (read()).Message
+    }
+
+let private diagnosticMarks =
+    Decoration.underline "unit-diagnostic" (fun view -> view.Editor.Field(diagnostics).Value) diagnosticHover
+
 /// The text view, defined once and mounted for each file.
 let editorView = EditorView.create EditorView.defaults
 
@@ -75,7 +85,8 @@ type State =
       /// Advances the app by one frame of `dt` seconds; a scripted run calls it in place of the frame callback.
       Frame: float -> unit
       /// Starts the frame loop when the tour runs.
-      Wake: unit -> unit }
+      Wake: unit -> unit
+      RevealDiagnostic: unit -> unit }
 
 let private activeSlot (s: State) : FileSlot = s.Files[s.Active.Value]
 
@@ -120,7 +131,19 @@ let setLayer (s: State) (value: bool) =
     s.Layer.Value <- value
     reconfigure s layerSlot (EditorView.compositorLayer.Of value)
 
-/// Keeps the keyboard focus where it is when a button of the shell is pressed.
+let private showDiagnostic (view: EditorView voption) stopTour =
+    match view with
+    | ValueSome view ->
+        let marks = view.Editor.Field(diagnostics).Value
+        if marks.Count > 0 then
+            stopTour ()
+            let line = Text.lineAt marks.From[0] view.Editor.Text.Value
+            view.ScrollTo(float (max 0 (line.Number - 3)) * view.Theme.LineHeight)
+            view.Editor.Dispatch [Tx.selection (EditorSelection.single marks.From[0] marks.From[0])]
+            view.RunFrame()
+            view.Focus()
+    | ValueNone -> ()
+
 let private keepFocus (_: State) (ev: MouseEvent) = ev.preventDefault ()
 
 let private milliseconds (ticks: int64) = float ticks * 1000.0 / float Stopwatch.Frequency
@@ -154,8 +177,13 @@ let private setup (ctx: Setup) (props: Props) : State =
     /// Restores the place a file was left at, and remembers it when the view goes.
     let scrollMemory (index: int) =
         ViewPlugin.define (fun view ->
+            session.MountedView <- ValueSome view
             view.ScrollTo session.Scrolls[index]
-            Api.onCleanup (fun () -> session.Scrolls[index] <- Api.untrack (fun () -> view.ScrollTop.Value)))
+            Api.onCleanup (fun () ->
+                match session.MountedView with
+                | ValueSome current when obj.ReferenceEquals(current, view) -> session.MountedView <- ValueNone
+                | _ -> ()
+                session.Scrolls[index] <- Api.untrack (fun () -> view.ScrollTop.Value)))
 
     let extensionsFor (index: int) : Extension list =
         [ Keymap.extension
@@ -163,6 +191,9 @@ let private setup (ctx: Setup) (props: Props) : State =
                     onToggleTour.Value ()
                     true) ]
           Keymap.extension Keymap.defaults
+          StateField.extension diagnostics
+          diagnosticMarks
+          EditorView.accessibleName.Of session.Files[index].Name
           Extension.many (features |> List.map (fun (_, slot, extension) -> slot.Of extension))
           recycleSlot.Of (EditorView.recycleRows.Of session.Recycle)
           cacheSlot.Of (EditorView.markupCache.Of session.Cached)
@@ -316,7 +347,8 @@ let private setup (ctx: Setup) (props: Props) : State =
           Status = status
           Lines = lines
           Frame = frame
-          Wake = wake }
+          Wake = wake
+          RevealDiagnostic = fun () -> graph.Run(fun () -> showDiagnostic session.MountedView (fun () -> if tour.Peek then onToggleTour.Value ())) }
 
     onToggleTour.Value <- fun () -> toggleTour state
 
@@ -402,10 +434,18 @@ let private sidebarView: TemplateView<State> =
             fun (s: State) -> if s.Layer.Value then "Compositor layer: on" else "Compositor layer: off"
         }
 
+        button (
+            button.batch (styles { Styles.toggle (fun (_: State) -> false) }),
+            button.attribute ("data-demo", "diagnostic"),
+            button.attribute ("disabled", fun (s: State) -> if (activeSlot s).Editor.Field(diagnostics).Value.Count = 0 then Some "" else None),
+            button.onMousedown keepFocus,
+            button.onClick (fun (s: State) _ -> s.RevealDiagnostic())
+        ) { "Go to diagnostic" }
+
         render hud (fun (s: State) -> s.Stats)
 
         div (styles { Styles.hint }) {
-            "Wheel or drag the scrollbar to scroll, click or drag to select, type to edit, Ctrl+Z to undo. F5 starts or stops the tour."
+            "Hover the underlined Mu: float for its unit diagnostic. Click or drag to select, type to edit, Ctrl+Z to undo. F5 starts or stops the tour."
         }
     }
 

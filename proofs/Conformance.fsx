@@ -2,6 +2,7 @@
 #r "Ranvier.dll"
 #r "Ranvier.Keyboard.dll"
 #r "Ranvier.Plume.dll"
+#load "../src/Ranvier.Plume.View/InputGeometry.fs"
 
 open System
 open System.IO
@@ -10,7 +11,7 @@ open Ranvier.Plume
 
 let lines = ResizeArray<string>()
 lines.Add "From Stdlib Require Import List NArith."
-lines.Add "From Plume Require Import Edits Retention."
+lines.Add "From Plume Require Import Edits Retention Snapshots InputGeometry."
 lines.Add "Import ListNotations."
 
 let list xs = "[" + String.concat "; " xs + "]"
@@ -127,4 +128,56 @@ let probe slowLast disposeSlow revision =
 for slowLast in [false; true] do
     for disposed in [false; true] do
         for revision in 0..5 do probe slowLast disposed revision
+// Keep a reader at cut so all later cursors share the same live storage.
+let snapshotProbe cut cursor head =
+    use graph = new Graph()
+    use active = graph.Activate()
+    let doc = Document.create Text.empty
+    let append count = for _ in 1..count do doc.Dispatch []
+    append cut
+    let pin = doc.Reader()
+    append (cursor - cut)
+    let reader = doc.Reader()
+    append (head - cursor)
+    let serials (batch: Transaction[]) = batch |> Array.map (fun tx -> string tx.Seq) |> list
+    let batch = reader.Read()
+    let storage = [cut+1..head] |> List.map string |> list
+    let count = head - cut
+    let start = cursor - cut
+    check $"snapshot_{cut}_{cursor}_{head}" $"snapshot ({storage} ++ [999]) {count} {start} = {serials batch}"
+    if batch.Length > 1 then batch[0] <- batch[1]
+    check $"source_{cut}_{cursor}_{head}" $"({storage} : list nat) = {serials (pin.Read())}"
+
+for head in 0..8 do
+    for cut in 0..head do
+        for cursor in cut..head do snapshotProbe cut cursor head
+let inputCases = [ ""; "a\r\nb"; "\r\r\n\n"; "é🙂\r\nx\u2028" ]
+for i, raw in List.indexed inputCases do
+    let widths = ResizeArray<int>()
+    let mutable at = 0
+    while at < raw.Length do
+        let width = if raw[at] = '\r' && at + 1 < raw.Length && raw[at + 1] = '\n' then 2 else 1
+        widths.Add width
+        at <- at + width
+    let model = widths |> Seq.map string |> list
+    for offset in 0..raw.Length do
+        let seen = Ranvier.Plume.View.InputGeometry.nativeOffset raw offset
+        check $"native_offset_{i}_{offset}" $"native_boundary {model} {offset} = {seen}"
+    for offset in 0..widths.Count do
+        let seen = Ranvier.Plume.View.InputGeometry.rawOffset raw offset
+        check $"raw_offset_{i}_{offset}" $"raw_boundary {model} {offset} = {seen}"
+for i, old in List.indexed ["aaa"; "a🙂b"; "xy\nz"] do
+    for j, fresh in List.indexed [ ""; "aa"; "aaaa"; "ab"; "Z🙂b"; "xy\nxyz" ] do
+        for first in 0..old.Length do
+            for last in first..old.Length do
+                let struct (l,r,s) = Ranvier.Plume.View.InputGeometry.replacement old fresh first last
+                check $"replace_{i}_{j}_{first}_{last}" $"@replay N {units old} {units fresh} {l} {r} {s} = {units fresh}"
+for a in 0..3 do
+    for b in a..4 do
+        for c in 0..3 do
+            for d in c..4 do
+                let struct (l, r) = Ranvier.Plume.View.InputGeometry.segment a b c d
+                check $"clip_{a}_{b}_{c}_{d}" $"clip {a} {b} {c} {d} = ({l},{r})"
+                let kept = if Ranvier.Plume.View.InputGeometry.untouched a b c d then "true" else "false"
+                check $"untouched_{a}_{b}_{c}_{d}" $"untouched {a} {b} {c} {d} = {kept}"
 File.WriteAllLines(fsi.CommandLineArgs[1], lines)

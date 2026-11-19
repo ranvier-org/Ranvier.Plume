@@ -55,7 +55,9 @@ type internal LayerInstance =
 [<Sealed; AllowNullLiteral>]
 type internal Surface() =
     member val View: EditorView = Unchecked.defaultof<EditorView> with get, set
-    member val Root: HTMLElement = null with get, set
+    member val Input: HTMLTextAreaElement = null with get, set
+    member val Preedit: Signal<string> = Unchecked.defaultof<_> with get, set
+    member val InputActive: Signal<bool> = Unchecked.defaultof<_> with get, set
     member val Viewport: HTMLElement = null with get, set
     member val Probe: HTMLElement = null with get, set
     member val Rows: Lookup<int, RowContent> = Unchecked.defaultof<_> with get, set
@@ -396,8 +398,9 @@ module internal Surface =
                 GutterWidth = gutterWidth
                 Focus =
                     fun () ->
-                        if not (isNull surface.Root) then
-                            surface.Root.focus ()
+                        if not (isNull surface.Input) then
+                            surface.InputActive.Value <- true
+                            surface.Input.focus ()
                 ScrollTo = scrollTo
                 // From where the view is: a target beyond a document that has shrunk counts as its end.
                 ScrollBy = fun delta -> scrollTo (Math.Clamp (scrollTarget.Peek, 0.0, limit ()) + delta)
@@ -442,6 +445,8 @@ module internal Surface =
         surface.Promoted <- promoted
         surface.Mounts <- mounts
         surface.Focused <- focused
+        surface.Preedit <- Api.createSignal ""
+        surface.InputActive <- Api.createSignal false
         surface.Measure <- measure
         surface.ScrollToFraction <- fun fraction -> scrollTo (Math.Clamp (fraction, 0.0, 1.0) * limit ())
 
@@ -549,7 +554,7 @@ module internal Handlers =
     let keyDown (surface: Surface) (ev: KeyboardEvent) =
         let chord = Ranvier.Keyboard.Dom.KeyboardEvent.toKeyChord ev
 
-        if not (KeyChord.isModifierOnly chord) then
+        if not ev.isComposing && not (KeyChord.isModifierOnly chord) then
             let editor = surface.View.Editor
 
             match Keymap.run editor surface.Pending chord with
@@ -563,7 +568,7 @@ module internal Handlers =
                 surface.Pending <- []
 
                 // A printable key without a binding inserts its text.
-                if not ev.ctrlKey && not ev.altKey && not ev.metaKey then
+                if not (ev.target :? HTMLTextAreaElement) && not ev.ctrlKey && not ev.altKey && not ev.metaKey then
                     match KeyChord.tryPlainText chord with
                     | ValueSome text ->
                         if Commands.insertText text editor then
@@ -583,6 +588,8 @@ module EditorView =
 
     /// True when a line keeps its row element for as long as it stays in the row pool. Default true.
     let recycleRows: Facet<bool, bool> = ViewFacets.recycleRows
+    /// The accessible name of the native editing control.
+    let accessibleName = ViewFacets.accessibleName
     /// True when the sheet is promoted to a compositor layer. Default false.
     let compositorLayer: Facet<bool, bool> = ViewFacets.compositorLayer
     /// True when the markup of a line is kept by the line's text. Default true.
@@ -769,7 +776,7 @@ module EditorView =
         // own render effect, so a change to its content re-reads the bindings of this row alone, and an edit to the
         // line writes the line's slot and leaves the markers' elements in place.
         let rowView: TemplateView<RowSlot> =
-            div (classOf { row }, div.attribute ("data-pm", "row"), div.style rowStyle) {
+            div (classOf { row }, div.attribute ("data-pm", "row"), div.attribute ("aria-hidden", "true"), div.style rowStyle) {
                 span (span.unsafeHtml (fun (slot: RowSlot) -> (slot.Surface.Rows.Get slot.Slot).Gutter)) { () }
                 span (span.unsafeHtml (fun (slot: RowSlot) -> (slot.Surface.Rows.Get slot.Slot).Markup)) { () }
             }
@@ -792,16 +799,17 @@ module EditorView =
         let layerView: TemplateView<LayerInstance> =
             fragment [| forEachFixed (fun (slot: MarkerSlot) -> slot.Index) (fun (layer: LayerInstance) -> layer.Slots.Value) markerView |]
 
+        let caretPosition (surface: Surface) =
+            let view = surface.View
+            let rect = view.CoordsAtPos view.Editor.Selection.Value.Main.Head
+            String.Concat("left:", Px.text rect.Left, ";top:", Px.text rect.Top, ";height:", Px.text rect.Height)
+
+        let overlay = view (fun (struct (spec: DecorationOverlay, editorView: EditorView)) -> Component.render spec.Body editorView)
+
         let template: TemplateView<Surface> =
             div (
                 classOf { root },
-                div.attribute ("tabindex", "0"),
-                div.mounted (fun (surface: Surface) (element: HTMLDivElement) ->
-                    surface.Root <- element
-                    fun () -> surface.Root <- null),
-                div.onKeydown Handlers.keyDown,
-                div.onFocus (fun (surface: Surface) (_: FocusEvent) -> surface.Focused.Value <- true),
-                div.onBlur (fun (surface: Surface) (_: FocusEvent) -> surface.Focused.Value <- false)
+                div.onKeydown Handlers.keyDown
             ) {
                 div (
                     classOf { viewport },
@@ -826,6 +834,14 @@ module EditorView =
                         forEachFixed (fun (layer: LayerInstance) -> layer.Id) (fun (surface: Surface) -> surface.Below.Value) layerView
                         forEachFixed (fun (slot: RowSlot) -> slot.Slot) (fun (surface: Surface) -> surface.RowSlots.Value) rowView
                         forEachFixed (fun (layer: LayerInstance) -> layer.Id) (fun (surface: Surface) -> surface.Above.Value) layerView
+                        forEachFixed (fun (struct (spec: DecorationOverlay, _)) -> spec.Id)
+                            (fun (s: Surface) -> s.View.Editor.Facet(Decoration.overlays).Value |> Array.map (fun spec -> struct (spec, s.View))) overlay
+                        span (
+                            span.attribute ("aria-hidden", "true"),
+                            span.style (fun (s: Surface) ->
+                                if String.IsNullOrEmpty s.Preedit.Value then "display:none"
+                                else "position:absolute;pointer-events:none;text-decoration:underline;background:" + theme.Background + ";" + caretPosition s)
+                        ) { fun (s: Surface) -> s.Preedit.Value }
                     }
 
                     span (
@@ -838,6 +854,25 @@ module EditorView =
                     }
                 }
 
+                textarea (
+                    textarea.attribute ("aria-label", fun (s: Surface) -> Some (s.View.Editor.Facet(accessibleName).Value)),
+                    textarea.attribute ("wrap", "off"),
+                    textarea.style (fun (s: Surface) ->
+                        let pos =
+                            if s.Focused.Value then
+                                let v = s.View
+                                let head = v.Editor.Selection.Value.Main.Head
+                                let rect = v.CoordsAtPos head
+                                let line = Text.lineAt head v.Editor.Text.Value
+                                let y = Math.Clamp(float line.Number * rect.Height - v.ScrollTop.Value, 0., max 0. (v.Height.Value - rect.Height))
+                                String.Concat("left:min(", Px.text rect.Left, ", 99%);top:", Px.text y, ";height:", Px.text rect.Height)
+                            else "left:0;top:0"
+                        "position:absolute;opacity:0;pointer-events:none;overflow:hidden;resize:none;width:1px;padding:0;border:0;" + pos),
+                    textarea.mounted (fun (s: Surface) area ->
+                        s.Input <- area
+                        let release = NativeInput.mount s.View s.Focused s.InputActive s.Preedit area
+                        fun () -> release (); s.Input <- null)
+                ) { () }
                 div (
                     classOf { scrollTrack },
                     div.onPointerdown Handlers.trackDown,
@@ -854,6 +889,25 @@ module EditorView =
 
         let rules =
             [
+                yield Rule.style (under "[data-pm=decoration]") [
+                    Declaration.create "position" "absolute"
+                    Declaration.create "box-sizing" "border-box"
+                ]
+                yield Rule.style (under "[data-decoration=underline]") [
+                    Declaration.create "border-bottom" "2px dotted currentColor"
+                ]
+                yield Rule.style (under "[data-pm=decoration-hover]") [
+                    Declaration.create "display" "none"
+                    Declaration.create "position" "absolute"
+                    Declaration.create "top" "100%"
+                    Declaration.create "left" "0"
+                    Declaration.create "width" "max-content"
+                    Declaration.create "background-color" theme.Background
+                    Declaration.create "color" theme.Ink
+                    Declaration.create "pointer-events" "none"
+                ]
+                yield Rule.style (under "[data-pm=decoration]:hover") [ Declaration.create "z-index" "1" ]
+                yield Rule.style (under "[data-pm=decoration]:hover > [data-pm=decoration-hover]") [ Declaration.create "display" "block" ]
                 yield Rule.style (under "[data-pm~=\"cursor\"]") [ Declaration.create "background-color" theme.Accent ]
                 yield Rule.style (under "[data-pm~=\"selection\"]") [ Declaration.create "background-color" theme.Selection ]
                 yield Rule.style (under "[data-pm~=\"active-line\"]") [ Declaration.create "background-color" theme.ActiveLine ]

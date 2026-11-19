@@ -5,6 +5,24 @@ open Ranvier.View.WebCore.Sdl
 open Ranvier.Plume
 open EditorShowcase.Sample
 
+type Diagnostic = { Code: string; Message: string }
+
+// The sample flags the first unannotated gravitational parameter. Edits touching
+// the reported text invalidate it. Unrelated edits move its anchor.
+let diagnostics =
+    StateField.define {
+        Create = fun state ->
+            [ for number in 0 .. min 31 (state.Doc.Lines - 1) do
+                  let line = Text.line number state.Doc
+                  let at = line.Text.IndexOf("Mu: float", System.StringComparison.Ordinal)
+                  if at >= 0 then
+                      yield line.From + at, line.From + at + 9,
+                            { Code = "UNIT"; Message = "Give the gravitational parameter a unit of measure." } ]
+            |> RangeSet.ofRanges
+        Update = fun ranges tx ->
+            if tx.DocChanged then Ranvier.Plume.View.Decoration.mapUntouched (ChangeSet.desc tx.Changes) ranges else ranges
+    }
+
 [<Literal>]
 let Title = "Editor showcase (Ranvier.Plume)"
 
@@ -23,6 +41,7 @@ type Session() =
     /// The distance each file was scrolled when its view was last unmounted, in CSS pixels.
     member val Scrolls: float[] = Array.zeroCreate files.Length with get
     member val Active = 0 with get, set
+    member val MountedView: Ranvier.Plume.View.EditorView voption = ValueNone with get, set
     /// True while the view scrolls by itself.
     member val Tour = true with get, set
     /// True when a line keeps its row element while it stays in the pool.

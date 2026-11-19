@@ -30,7 +30,7 @@ type Mode =
     | Memory
     | Load
     | Apply
-    | Profile
+    | Profile of nativeTurn: bool
     | Writes
     | Tour of picture: string
 
@@ -62,6 +62,7 @@ let usage =
   dotnet run -c Release -- --load       time building the text of the 1,000,000-line file from UTF-8 bytes
   dotnet run -c Release -- --apply      time one change set of 10,000 ranges against 10,000 single replacements
   dotnet run -c Release -- --profile    time typing and scrolling with each feature of the text view switched off
+  dotnet run -c Release -- --profile-turn  include host scheduling and native rendering phases in the profile
   dotnet run -c Release -- --writes     list the writes a keystroke and a scroll make to the page
   dotnet run -c Release -- --tour       run the app as its window runs it, tour on, with no window shown
   dotnet run -c Release -- --tour --shown <picture.png>
@@ -88,7 +89,8 @@ let parse (argv: string[]) : Result<Options, string> =
         | "--memory" :: tail -> go { options with Mode = Memory } tail
         | "--load" :: tail -> go { options with Mode = Load } tail
         | "--apply" :: tail -> go { options with Mode = Apply } tail
-        | "--profile" :: tail -> go { options with Mode = Profile } tail
+        | "--profile" :: tail -> go { options with Mode = Profile false } tail
+        | "--profile-turn" :: tail -> go { options with Mode = Profile true } tail
         | "--writes" :: tail -> go { options with Mode = Writes } tail
         | "--tour" :: "--shown" :: path :: "--pointer" :: tail -> go { options with Mode = Tour path; Shown = true; Pointer = true } tail
         | "--tour" :: "--shown" :: path :: tail -> go { options with Mode = Tour path; Shown = true } tail
@@ -309,8 +311,8 @@ let private bench (options: Options) =
 
 /// What each feature of the text view costs: typing and scrolling with one or more features switched off, in
 /// rounds that take every configuration in turn, in one window.
-let private profile (options: Options) =
-    say "Editor showcase on Ranvier.Plume --profile"
+let private profile (options: Options) nativeTurn =
+    say (if nativeTurn then "Editor showcase on Ranvier.Plume --profile-turn" else "Editor showcase on Ranvier.Plume --profile")
 
     hosted options (fun window state view step ->
         let graph = window.Graph
@@ -332,12 +334,53 @@ let private profile (options: Options) =
               "no language", [ "language" ]
               "text alone", [ "cursor"; "active"; "selection"; "numbers"; "language" ] ]
 
+        // Exercise the focused native text-entry path in the same hidden window on either build.
+        let nativeInput = Environment.GetEnvironmentVariable "PLUME_PROFILE_INPUT" = "1"
+        if nativeInput then
+            window.Host.SetFocused true
+            graph.Run view.Focus
+
+        let typeOne () =
+            if nativeInput then window.Host.Type("x", "KeyX", "x")
+            else graph.Run(fun () -> Commands.insertText "x" editor |> ignore)
+
         let workloads =
-            [ "typing", (fun () -> graph.Run(fun () -> Commands.insertText "x" editor |> ignore))
+            [ "typing", typeOne
               $"lines x{options.Lines}", (fun () -> graph.Run(fun () -> view.ScrollBy(float options.Lines * lineHeight))) ]
 
         let rounds = 5
         let totals = Dictionary<string, ResizeArray<struct (float * float * float)>>()
+        let phases = Dictionary<struct (string * string), struct (int * float)>()
+        let record workload phase nanoseconds =
+            let key = struct (workload, phase)
+            let struct (events, duration) = phases.GetValueOrDefault key
+            phases[key] <- struct (events + 1, duration + nanoseconds)
+
+        if nativeTurn then
+            window.Host.SetSchedulingTrace true
+            window.Host.SetRenderingTrace true
+
+        let drain keep workload =
+            let struct (owner, lostOwner) = window.Host.DrainSchedulingTrace()
+            let rendering, lostRendering = window.Host.DrainRenderingTrace()
+            if lostOwner <> 0L || lostRendering <> 0UL then raise (RunFailed "native turn trace overflow")
+            if keep then
+                for event in owner do
+                    record workload (string event.Phase) (float event.Duration * 1e9 / float Stopwatch.Frequency)
+                for event in rendering do
+                    let phase =
+                        match event.phase with
+                        | 1 -> "UpdateRequested"
+                        | 2 -> "StyleLayout"
+                        | 3 -> "Paint"
+                        | 4 -> "RenderingUpdate"
+                        | 5 -> "GpuSubmit"
+                        | 6 -> "BufferCreate"
+                        | 7 -> "CaptureRaster"
+                        | 8 -> "ImageEncode"
+                        | 9 -> "PixelCopy"
+                        | other -> $"Native({other})"
+                    record workload phase (float event.duration_ns)
         // PLUME_PROFILE names the one workload and configuration to run, as "typing|every feature": a CPU trace
         // of the run then holds that workload alone.
         let only = Environment.GetEnvironmentVariable "PLUME_PROFILE"
@@ -353,6 +396,7 @@ let private profile (options: Options) =
                 // Each round starts with another configuration.
                 for offset in 0 .. run.Length - 1 do
                     let configuration, off = run[(offset + round) % run.Length]
+                    let key = workload + "|" + configuration
 
                     for feature in off do
                         switch feature false
@@ -363,6 +407,7 @@ let private profile (options: Options) =
                         let start = (Text.line (first + 4) editor.Text.Value).From
                         editor.Dispatch [ Tx.selection (EditorSelection.single start start) ])
 
+                    let initialLength = editor.Text.Peek.Length
                     if workload = "typing" then
                         typed <- typed + 1
 
@@ -376,6 +421,8 @@ let private profile (options: Options) =
                         let t1 = Stopwatch.GetTimestamp()
                         state.Frame(1.0 / 60.0)
                         let t2 = Stopwatch.GetTimestamp()
+                        if nativeTurn then drain false ""
+                        let turnStart = if nativeTurn then Stopwatch.GetTimestamp() else t2
 
                         if not (window.Step(timeout = 0)) then
                             raise (RunFailed "the window closed during the run")
@@ -385,9 +432,12 @@ let private profile (options: Options) =
                         if frame >= 0 then
                             dispatch <- dispatch + (t1 - t0)
                             app <- app + (t2 - t1)
-                            turn <- turn + (t3 - t2)
+                            turn <- turn + (t3 - turnStart)
 
-                    let key = workload + "|" + configuration
+                        if nativeTurn then drain (frame >= 0) key
+
+                    if nativeInput && workload = "typing" && editor.Text.Peek.Length <> initialLength + options.Frames + 30 then
+                        raise (RunFailed "native typing did not insert one character per turn")
 
                     if not (totals.ContainsKey key) then
                         totals[key] <- ResizeArray()
@@ -397,6 +447,13 @@ let private profile (options: Options) =
 
                     for feature in off do
                         switch feature true
+
+        if nativeTurn then
+            say "  Events completed during timed Window.Step calls. Durations are inclusive ms per timed turn. Phases can overlap."
+            for entry in phases |> Seq.sortBy (fun entry -> entry.Key) do
+                let struct (workload, phase) = entry.Key
+                let struct (events, ns) = entry.Value
+                say $"  {workload} {phase}: {events} events, {fixed3 (ns / (1e6 * float rounds * float options.Frames))} ms/turn"
 
         say $"  {rounds} rounds of {options.Frames} timed frames after 30 untimed ones; a row is the mean of its rounds, and the lowest and highest total of a round"
         say ""
@@ -967,6 +1024,13 @@ let private tour (options: Options) (picture: string) =
             let resumed = refreshes 60
             holds $"and the tour moves the text on its own frames again ({resumed} of 60 refreshes ran one)" (resumed = 60 && top () <> again)
 
+            let reveal = doc.querySelector "[data-demo=diagnostic]" :?> HTMLElement
+            reveal.click()
+            refreshes 6 |> ignore
+            let tip = doc.querySelector ".unit-diagnostic [role=tooltip]"
+            holds "the diagnostic button stops the tour and reveals the unit diagnostic" (
+                not state.Tour.Peek && not (isNull tip) && tip.textContent.Contains "UNIT")
+
             // A tab opens its file in a view of its own.
             click (button "Integrators.fs")
             refreshes 6 |> ignore
@@ -1121,7 +1185,7 @@ let run (options: Options) : int =
         | Memory -> memory ()
         | Load -> load ()
         | Apply -> apply ()
-        | Profile -> profile options
+        | Profile nativeTurn -> profile options nativeTurn
         | Writes -> writes options
         | Tour picture -> tour options picture
         | Interactive -> invalidOp "the window is opened by Program"

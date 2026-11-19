@@ -171,6 +171,21 @@ let documentTests =
                     graph.Pump () |> ignore
                     Expect.equal (textOf document) "xy" "after the pump")
 
+            testCase "an unread suffix allocates one independent array"
+            <| fun () ->
+                withGraph (fun _ ->
+                    let document = Document.create Text.empty
+                    let reader = document.Reader ()
+                    for _ in 1..257 do document.Dispatch []
+                    document.Since 1L |> ignore
+                    let before = System.GC.GetAllocatedBytesForCurrentThread()
+                    let suffix = document.Since 1L
+                    let bytes = System.GC.GetAllocatedBytesForCurrentThread() - before
+                    Expect.equal suffix.Length 256 "nonzero offset"
+                    Expect.isLessThan bytes (int64 ((suffix.Length + 8) * System.IntPtr.Size)) "one array with header"
+                    suffix[0] <- suffix[1]
+                    Expect.equal (reader.Read ()).[1].Seq 2L "writing the snapshot leaves the retained log intact")
+
             testCase "the log keeps only what a reader has yet to read"
             <| fun () ->
                 withGraph (fun _ ->
