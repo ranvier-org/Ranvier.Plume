@@ -46,11 +46,11 @@ stays what it was.
 | 6 `Editor` | 3 of 3 | `baff5e2` | 14 `Editor` tests |
 | 7 Commands, keymaps, language | 3 of 3 | `71e619d` | 12 `Commands`, 4 `Keymap` and 2 `Language` tests |
 | 8 `Ranvier.Plume.View` | 4 of 4, step 1 late | `334bc51`, `7b2e860` | 41 view tests in hidden windows (34 at the end of phase 1) and 1 of a line's markup; each case of the step 2 smoke test has a test. No spike was made (step 1); its two questions are tests written after the view |
-| 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture `sample-shot.png` (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
+| 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture [editor-showcase.png](static/editor-showcase.png) (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
 | 10 SIMD checks | 3 of 3 | `26dea99` | 7.3 below: the vectorised scan is faster and is kept; `--apply` is measured. Step 3 named a commit of its own; keeping the scan changed no code, so the decision is recorded with the acceptance commit |
 | 11 Acceptance | 5 of 5 | `26dea99`, `dd00fc9`, `7b2e860`, `8360aad` | 7.1: all nine rows pass. 7.2: 279 bytes. Step 3: the profile and the fix, in 7.1. Step 4: this file, the dossier's status line and decision 17. Step 5: the gate, `rfs check`, and two fresh-context reviews with their findings fixed |
 
-The state tests sum to 136, with 8 of vertical motion and 5 of the column grid added after phase 1, and run on `net10.0`, on `net8.0`, and on the traced core on both.
+The state tests sum to 137, with 8 of vertical motion and 6 of the column grid added after phase 1, and run on `net10.0`, on `net8.0`, and on the traced core on both.
 
 `dotnet fsi --exec build.fsx -- acceptance` recomputes the verdicts of section 7 without this file's prose: 7.1
 from the ten recorded runs in `bench/` by the rule of dossier 7.1, 7.2 and 7.3 from runs it makes, the plan's
@@ -617,10 +617,10 @@ unless they say otherwise):
   page as a patch in 1.1 s with the tour still stopped; an edit that does not compile was reported as an error
   and left the page as it was; the revert was patched in; an edit to `Harness.fs` was evaluated (**measured
   here**, the host's own report of one run; the first frame came 1.4 s after the host started).
-- **Both frameworks.** The state package's 136 tests run on `net10.0` and on `net8.0`. The view's tests run on
+- **Both frameworks.** The state package's 137 tests run on `net10.0` and on `net8.0`. The view's tests run on
   `net10.0`, the only target of the native host package.
 - **The traced build.** `dotnet fsi --exec build.fsx -- traced` builds both libraries with `-p:RanvierTrace=true`
-  on both frameworks, with 0 warnings, and runs the state tests on them: 136 pass on each. It works in a copy of
+  on both frameworks, with 0 warnings, and runs the state tests on them: 137 pass on each. It works in a copy of
   the tree, because a traced restore in place would replace what the untraced build and `rfs` read. One test
   reads differently there: a traced graph's event log holds the payload of each event (**from source**,
   `Ranvier/src/Ranvier/Trace.fs`), so the text a document started with is never collected, and the retention
@@ -679,9 +679,8 @@ a frame's total is at or below the earlier build's in eight of the nine rows, an
 
 **What it does not do:**
 
-- The list of wide characters is from general knowledge of Unicode's East Asian Width property and of the emoji
-  blocks, not checked against the data file. A wide character missing from it is drawn in a box of one column
-  and reaches into the next.
+- A character that Unicode's width property makes narrow but a font draws wide, such as a symbol shown as an
+  emoji by a variation selector, takes one column and reaches into the next.
 - A line of many characters outside ASCII has an element for each of them. Its cost is not measured.
 - A control character other than a tab counts one column, whatever the page draws for it.
 
@@ -694,10 +693,20 @@ module `Columns`, and vertical motion keeps a column of it: `SelectionRange.Goal
 grid. On lines of printable ASCII nothing changes. The five tests of the grid's arithmetic moved to the state
 tests with it.
 
+**The list of wide characters, checked next.** The list was first written from general knowledge. Compared with
+Unicode 18.0.0's `EastAsianWidth.txt` (of 2026-06-29, fetched from unicode.org on 2026-11-19), it was wrong both
+ways: it left out 9,571 wide code points in 68 ranges, among them many emoji and symbols, the Yijing hexagrams,
+Tangut and the kana supplements, and it made 363 narrow or unassigned code points wide. A test of 46 code points,
+each with the class that file gives it, was written first and failed on eleven of them. The table is now the 126
+ranges that file gives the classes W and F, with its defaults for the code points it does not list, and
+`dotnet fsi --exec build.fsx -- widths <the file>` compares the table with a copy of the file: it passes on the
+table and fails on the table with one range taken out. The data file is not in this repository.
+
 **Where it was verified.** Another session was editing the keymap, the README, the sample and a state test in the
-main checkout while this was done, and for a time that checkout did not build. Both fixes were verified in a
-detached worktree with these changes alone: `ci` (136 state tests on each framework, 42 view tests, 0 warnings),
-`check`, `traced`, `dev` (14 of 14 steps), `acceptance`, `red` and the hidden `--tour`, each with exit code 0.
+main checkout while the first two fixes were made, and for a time that checkout did not build. Each fix was
+verified in a detached worktree with its changes alone, the last on top of that session's commit `0582dc1`: `ci`
+(137 state tests on each framework, 42 view tests, 0 warnings), `check`, `traced`, `dev` (14 of 14 steps),
+`acceptance`, `red` and the hidden `--tour`, each with exit code 0.
 
 ## Statements of mine that were wrong
 
@@ -736,7 +745,7 @@ Two tests failed once each in single gate runs, and passed when run again; a thi
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 136 tests, run on `net10.0` and on `net8.0`. The view project has 42: 41 in hidden
+The state package has 137 tests, run on `net10.0` and on `net8.0`. The view project has 42: 41 in hidden
 windows and 1 of a line's markup.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
@@ -753,7 +762,7 @@ each in a copy of its task's commit (figures in "The order the work was done in"
 `dotnet fsi --exec build.fsx -- dev`: the sample under the hot reload host, window off screen: 14 of 14 steps
 pass.
 
-`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 136 state tests on
+`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 137 state tests on
 each framework.
 
 `samples/EditorShowcase --tour`: 19 of 19 checks, hidden. `--tour --shown <picture>` shows the window for the

@@ -11,6 +11,8 @@
 //           the steps of samples/EditorShowcase/hot-reload.json edit the copy and read the page after each edit
 //   red     the plan's two "run; it fails to compile" steps, made after the fact: the tests of tasks 1 and 2, each at
 //           its task's commit, in a copy of that commit with the task's implementation file taken out
+//   widths <file>  compares the table of wide characters in src/Ranvier.Plume/Columns.fs with a copy of Unicode's
+//           EastAsianWidth.txt, and prints the table that file gives when they differ
 open System
 open System.Diagnostics
 open System.Globalization
@@ -256,6 +258,55 @@ let red () =
 
     printfn "both runs fail for the reason the plan gives: what the tests are written against is not there"
 
+// The characters two columns wide are the classes W and F of Unicode's East Asian Width property. The data file
+// lists a class for each assigned code point; its header gives the default of the code points it does not list,
+// and the five ranges below are that header's, as of version 18.0.0.
+let widths (path: string) =
+    let listed = ResizeArray<struct (int * int)> ()
+    let mutable version = "a file without a version line"
+
+    for raw in File.ReadLines path do
+        if raw.StartsWith "# EastAsianWidth-" then
+            version <- raw.Substring(2).Trim ()
+
+        let line = (raw.Split '#').[0].Trim ()
+
+        if line.Length > 0 then
+            let parts = line.Split ';'
+            let kind = parts[1].Trim ()
+
+            if kind = "W" || kind = "F" then
+                let points = parts[0].Trim().Split ("..", StringSplitOptions.None)
+                let first = Convert.ToInt32 (points[0], 16)
+                listed.Add (struct (first, (if points.Length > 1 then Convert.ToInt32 (points[1], 16) else first)))
+
+    listed.AddRange [ struct (0x3400, 0x4DBF); struct (0x4E00, 0x9FFF); struct (0xF900, 0xFAFF); struct (0x20000, 0x2FFFD); struct (0x30000, 0x3FFFD) ]
+
+    // Ranges that touch or overlap are one range.
+    let merged =
+        (List.empty, listed |> Seq.sortBy (fun (struct (first, _)) -> first))
+        ||> Seq.fold (fun done' (struct (first, last)) ->
+            match done' with
+            | struct (start, finish) :: rest when first <= finish + 1 -> struct (start, max finish last) :: rest
+            | _ -> struct (first, last) :: done')
+        |> List.rev
+
+    let source = File.ReadAllText (Path.Combine (root, "src", "Ranvier.Plume", "Columns.fs"))
+
+    let table =
+        [ for found in Regex.Matches (source, @"struct \(0x([0-9A-F]+), 0x([0-9A-F]+)\)") ->
+              struct (Convert.ToInt32 (found.Groups[1].Value, 16), Convert.ToInt32 (found.Groups[2].Value, 16)) ]
+
+    if table = merged then
+        printfn "the table of Columns.fs has the %d ranges of %s" merged.Length version
+    else
+        eprintfn "the table of Columns.fs has %d ranges and differs from the %d of %s, which are:" table.Length merged.Length version
+
+        for struct (first, last) in merged do
+            printfn "            struct (0x%04X, 0x%04X)" first last
+
+        exit 1
+
 // The hot reload host ends with exit code 0 whatever its steps found, so the steps are read from its result.
 let dev () =
     let sample = Path.Combine (root, "samples", "EditorShowcase")
@@ -302,7 +353,10 @@ let dev () =
     finally
         Directory.Delete (work, true)
 
-match fsi.CommandLineArgs |> Array.skip 1 |> Array.filter (fun a -> a <> "--") |> Array.tryHead with
+let arguments = fsi.CommandLineArgs |> Array.skip 1 |> Array.filter (fun a -> a <> "--")
+
+match Array.tryHead arguments with
+| Some "widths" when arguments.Length = 2 -> widths arguments[1]
 | Some "build" -> build ()
 | Some "test" -> test ()
 | Some "check" -> check ()
@@ -315,5 +369,5 @@ match fsi.CommandLineArgs |> Array.skip 1 |> Array.filter (fun a -> a <> "--") |
     build ()
     test ()
 | Some other ->
-    eprintfn "unknown target '%s' (build, test, ci, check, dev, traced, acceptance, red)" other
+    eprintfn "unknown target '%s' (build, test, ci, check, dev, traced, acceptance, red, widths <file>)" other
     exit 2

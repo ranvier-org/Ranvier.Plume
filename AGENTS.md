@@ -48,6 +48,10 @@ benchmark runs in `docs/bench` and from memory and loading runs it makes.
 `dotnet fsi --exec build.fsx -- red` shows the tests of plan tasks 1 and 2 failing to compile without their
 implementation, each in a copy of its task's commit.
 
+`dotnet fsi --exec build.fsx -- widths <EastAsianWidth.txt>` compares the table of wide characters in
+`src/Ranvier.Plume/Columns.fs` with a copy of Unicode's data file. Run it when the table or the Unicode version
+changes; the file is not in the repository.
+
 ## Order of work
 
 Write a task's tests before its code, and run them to see them fail. Tick a plan step that says "run; it fails"
