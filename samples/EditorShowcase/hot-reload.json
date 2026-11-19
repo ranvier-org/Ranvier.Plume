@@ -1,5 +1,6 @@
 [
   { "op": "expect", "name": "the text view is mounted", "selector": "[data-plume]" },
+  { "op": "expect", "name": "the named editing control is mounted", "selector": "textarea[aria-label]" },
   { "op": "expect", "name": "the tour's button", "selector": "button:nth-of-type(4)", "text": "Scroll tour: running" },
   { "op": "click", "name": "stop the tour", "selector": "button:nth-of-type(4)" },
   { "op": "expect", "name": "the tour is stopped", "selector": "button:nth-of-type(4)", "text": "Scroll tour: stopped" },
@@ -12,5 +13,7 @@
   { "op": "expect", "name": "the first label is back", "selector": "button:nth-of-type(4)", "text": "Scroll tour: stopped" },
   { "op": "edit", "name": "an edit to the scripted modes' file", "file": "Harness.fs", "find": "Editor showcase on Ranvier.Plume --shot", "replace": "Editor showcase on Ranvier.Plume --shot." },
   { "op": "expect", "name": "the app is as it was after it", "selector": "button:nth-of-type(4)", "text": "Scroll tour: stopped" },
-  { "op": "revert", "name": "that file as it was", "file": "Harness.fs" }
+  { "op": "revert", "name": "that file as it was", "file": "Harness.fs" },
+  { "op": "click", "name": "reveal the sample diagnostic", "selector": "[data-demo=diagnostic]" },
+  { "op": "expect", "name": "the diagnostic range has a typed hover", "selector": ".unit-diagnostic [role=tooltip]" }
 ]

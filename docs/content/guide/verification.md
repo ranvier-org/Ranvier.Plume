@@ -11,6 +11,10 @@ The Rocq theorem `hinted_cut_exact` covers every possible index, including an ou
 
 For changes to text, the model compares the back-to-front splice implementation with a forward edit specification. Inverting stamped changes restores the original sequence. For materialization, `fill_frame` proves that writing a subtree into its assigned region produces the concatenated text while preserving both surrounding regions.
 
+## Comparing editor performance
+
+Use the full-feature editor from v0.2.0 as the control for focused typing and scrolling. Keep IME, clipboard, accessible selection and decorations enabled in both builds. Compare paired whole-turn timings on the same machine. The v0.1.1 timings remain available for historical comparisons. [Benchmark protocol and measurements](https://github.com/ranvier-org/Ranvier.Plume/blob/v0.2.0/docs/bench/full-feature-baseline.md)
+
 ## Running the checks
 
 Run `opam exec -- bash proofs/check.sh` with the toolchain from the proof workflow. The script compiles the Release F# editor, records its results as executable Rocq examples, compiles the proofs, checks their assumptions and verifies the compiled dependencies. The examples include owner disposal, older transaction bases, mixed line endings, multiple leaves, and edits inside a UTF-16 surrogate pair.

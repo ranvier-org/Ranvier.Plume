@@ -1,4 +1,13 @@
-From Plume Require Import Retention Edits Cursors.
+From Plume Require Import Retention Edits Cursors Snapshots InputGeometry.
+Print Assumptions selection_boundary_roundtrip.
+Print Assumptions unchanged_length_offset.
+Print Assumptions underline_visible_exact.
+Print Assumptions diagnostic_invalidation.
+Print Assumptions replay_exact.
+Print Assumptions surviving_mark.
+Print Assumptions snapshot_exact.
+Print Assumptions wp_read_slice.
+Print Assumptions wp_read_since.
 Print Assumptions hinted_cut_exact.
 Print Assumptions oldest_bound.
 Print Assumptions oldest_reader.

@@ -1,0 +1,114 @@
+{
+  "framesPerRound": 160,
+  "blocks": 6,
+  "samples": [
+    {
+      "block": 1,
+      "build": "baseline",
+      "workload": "typing",
+      "dispatchMs": 1.45,
+      "callbackMs": 0.005,
+      "windowStepMs": 0.877,
+      "wholeTurnMs": 2.331
+    },
+    {
+      "block": 1,
+      "build": "baseline",
+      "workload": "lines x3",
+      "dispatchMs": 0.007,
+      "callbackMs": 0.422,
+      "windowStepMs": 1.084,
+      "wholeTurnMs": 1.513
+    },
+    {
+      "block": 2,
+      "build": "baseline",
+      "workload": "typing",
+      "dispatchMs": 1.116,
+      "callbackMs": 0.003,
+      "windowStepMs": 0.648,
+      "wholeTurnMs": 1.767
+    },
+    {
+      "block": 2,
+      "build": "baseline",
+      "workload": "lines x3",
+      "dispatchMs": 0.007,
+      "callbackMs": 0.374,
+      "windowStepMs": 0.924,
+      "wholeTurnMs": 1.305
+    },
+    {
+      "block": 3,
+      "build": "baseline",
+      "workload": "typing",
+      "dispatchMs": 1.054,
+      "callbackMs": 0.003,
+      "windowStepMs": 0.59,
+      "wholeTurnMs": 1.647
+    },
+    {
+      "block": 3,
+      "build": "baseline",
+      "workload": "lines x3",
+      "dispatchMs": 0.006,
+      "callbackMs": 0.332,
+      "windowStepMs": 0.794,
+      "wholeTurnMs": 1.132
+    },
+    {
+      "block": 4,
+      "build": "baseline",
+      "workload": "typing",
+      "dispatchMs": 1.069,
+      "callbackMs": 0.003,
+      "windowStepMs": 0.59,
+      "wholeTurnMs": 1.661
+    },
+    {
+      "block": 4,
+      "build": "baseline",
+      "workload": "lines x3",
+      "dispatchMs": 0.006,
+      "callbackMs": 0.364,
+      "windowStepMs": 0.903,
+      "wholeTurnMs": 1.273
+    },
+    {
+      "block": 5,
+      "build": "baseline",
+      "workload": "typing",
+      "dispatchMs": 1.412,
+      "callbackMs": 0.005,
+      "windowStepMs": 0.88,
+      "wholeTurnMs": 2.297
+    },
+    {
+      "block": 5,
+      "build": "baseline",
+      "workload": "lines x3",
+      "dispatchMs": 0.008,
+      "callbackMs": 0.427,
+      "windowStepMs": 1.081,
+      "wholeTurnMs": 1.516
+    },
+    {
+      "block": 6,
+      "build": "baseline",
+      "workload": "typing",
+      "dispatchMs": 1.321,
+      "callbackMs": 0.004,
+      "windowStepMs": 0.774,
+      "wholeTurnMs": 2.099
+    },
+    {
+      "block": 6,
+      "build": "baseline",
+      "workload": "lines x3",
+      "dispatchMs": 0.006,
+      "callbackMs": 0.357,
+      "windowStepMs": 0.867,
+      "wholeTurnMs": 1.23
+    }
+  ]
+}
