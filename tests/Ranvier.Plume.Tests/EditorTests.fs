@@ -91,6 +91,25 @@ let documentTests =
                     document.Dispatch [ insert 0 "c" ]
                     Expect.throwsT<InvalidOperationException> (fun () -> document.DispatchAt (0L, [ insert 0 "z" ])) "position 0 is gone")
 
+            // Atelier's fourth text test: a batch of overlapping edits is refused, and the document is as it was.
+            testCase "a dispatch whose changes overlap raises and leaves the document as it was"
+            <| fun () ->
+                withGraph (fun _ ->
+                    let document = Document.create (Text.ofString "hello world")
+                    let editor = Editor.create document []
+
+                    let overlapping =
+                        [ Tx.changes [ { From = 2; To = 7; Insert = Text.ofString "foo" }; { From = 5; To = 9; Insert = Text.ofString "bar" } ] ]
+
+                    Expect.throwsT<ArgumentException> (fun () -> document.Dispatch overlapping) "through the document"
+                    Expect.throwsT<ArgumentException> (fun () -> editor.Dispatch overlapping) "through an editor"
+                    Expect.equal (textOf document) "hello world" "the text"
+                    Expect.equal document.Head.Value 0L "the head"
+                    Expect.isFalse document.IsDirty.Value "not dirty"
+                    Expect.equal document.UndoDepth.Value 0 "nothing to undo"
+                    document.Dispatch [ insert 11 "!" ]
+                    Expect.equal (textOf document) "hello world!" "and it still takes an edit")
+
             testCase "the dirty flag across the saved position"
             <| fun () ->
                 withGraph (fun _ ->

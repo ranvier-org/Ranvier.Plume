@@ -17,7 +17,7 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 
 The three criteria pass. The plan's order of work was not followed: in tasks 1 to 8 the code was written before
 its tests, and three of the plan's steps were ticked for acts that had not been made ("The order the work was done
-in").
+in"). A fourth was ticked with its work partial ("The port of Atelier's text tests").
 
 ## The plan, task by task
 
@@ -27,15 +27,16 @@ which the gate runs. This table is mine; the section after it is an independent 
 its step-by-step verdicts are the ones to go by.
 
 **Three of the 41 ticks are for steps made late**: 1.3, 2.2 and 8.1. The plan marks each "made late", and "The
-order the work was done in" says what happened.
+order the work was done in" says what happened. **A fourth, 1.2, was ticked with its port partial**; the plan
+marks it "completed late", and "The port of Atelier's text tests" says what was missing.
 
 | Task | Steps | Commits | Evidence |
 |---|---|---|---|
-| 1 Repository scaffold and `Text` | 5 of 5, step 3 late | `20c43cd` | 17 `Text` tests and 5 properties run by FsCheck. The failing run of step 3 is made by `build.fsx red` |
+| 1 Repository scaffold and `Text` | 5 of 5, steps 2 and 3 late | `20c43cd` | 18 `Text` tests and 5 properties run by FsCheck. The port of step 2 was completed on 2026-11-19. The failing run of step 3 is made by `build.fsx red` |
 | 2 `ChangeSet` | 4 of 4, step 2 late | `673af03` | 10 `ChangeSet` tests. The failing run of step 2 is made by `build.fsx red` |
 | 3 `EditorSelection` and `RangeSet` | 3 of 3 | `1c14134` | 5 `EditorSelection` and 6 `RangeSet` tests |
 | 4 Transactions and `EditorState` | 3 of 3 | `484dffb` | 19 `EditorState` tests |
-| 5 History and `Document` | 4 of 4 | `baff5e2`, `0f2937f` | 16 `History`, 9 `Document` and 1 `Retention` test |
+| 5 History and `Document` | 4 of 4 | `baff5e2`, `0f2937f` | 17 `History`, 10 `Document` and 1 `Retention` test |
 | 6 `Editor` | 3 of 3 | `baff5e2` | 14 `Editor` tests |
 | 7 Commands, keymaps, language | 3 of 3 | `71e619d` | 12 `Commands`, 4 `Keymap` and 2 `Language` tests |
 | 8 `Ranvier.Plume.View` | 4 of 4, step 1 late | `334bc51`, `7b2e860` | 34 view tests in hidden windows; each case of the step 2 smoke test has a test. No spike was made (step 1); its two questions are tests written after the view |
@@ -43,7 +44,7 @@ order the work was done in" says what happened.
 | 10 SIMD checks | 3 of 3 | `26dea99` | 7.3 below: the vectorised scan is faster and is kept; `--apply` is measured. Step 3 named a commit of its own; keeping the scan changed no code, so the decision is recorded with the acceptance commit |
 | 11 Acceptance | 5 of 5 | `26dea99`, `dd00fc9`, `7b2e860`, `8360aad` | 7.1: all nine rows pass. 7.2: 279 bytes. Step 3: the profile and the fix, in 7.1. Step 4: this file, the dossier's status line and decision 17. Step 5: the gate, `rfs check`, and two fresh-context reviews with their findings fixed |
 
-The state tests sum to 120 and run on `net10.0`, on `net8.0`, and on the traced core on both.
+The state tests sum to 123 and run on `net10.0`, on `net8.0`, and on the traced core on both.
 
 `dotnet fsi --exec build.fsx -- acceptance` recomputes the verdicts of section 7 without this file's prose: 7.1
 from the ten recorded runs in `bench/` by the rule of dossier 7.1, 7.2 and 7.3 from runs it makes, the plan's
@@ -228,14 +229,46 @@ time; and five properties run generated cases.
 | That the ten recorded logs came from one alternating session | One command at 17:53:43 on 2026-11-18 ran five pairs, the baseline and then the sample in each, and copied the ten logs into `bench/`. Commit `7b2e860`, made five minutes later, holds them, and no later commit touches them |
 | That Atelier was left alone | 15 shell commands name its folder, the last at 15:02:36 on 2026-11-18. Each lists, prints, counts or searches (`ls`, `cat`, `find`, `grep`, `wc`, `sed -n`, `diff -q`, and `git status`, `log`, `branch`, `remote` and `diff --stat`). The editing tools wrote no file under it |
 
-Two of its points stay open: that the baseline's stopwatch is the only edit outside this folder (a shell command
-can write anywhere, and I did not read every one for it), and whether the port of Atelier's text tests is
-complete.
+**The audit's last two points**, checked on 2026-11-19:
+
+- *Whether the port of Atelier's text tests is complete.* It was not. The next section has what was missing and
+  what was added.
+- *That the baseline's stopwatch is the only edit outside this folder.* This cannot be shown. I listed every file
+  of the workspace folder that changed after the session began, build outputs and repository data aside
+  (**measured here**: `find` by modification time). Outside this repository it finds 6,422 files in seven places.
+  One is `EditorShowcase/Harness.fs`, the baseline, last changed at 16:01 UTC on 2026-11-18, which is when the
+  stopwatch went in. The other 6,421 are in `Ranvier.Anime`, `Ranvier.Docs`, `Ranvier.Keyboard`,
+  `Ranvier.Terminal`, `ranvier-fsharp`, the worktree folder `_wt`, and `RELEASE-RUNBOOK.md`: other sessions'
+  work in the same hours (in `Ranvier.Keyboard`, for one, two commits of a documentation site and nothing under
+  `src`). I did not work in those folders, and a file's time does not say who wrote it. What the list does show:
+  nothing changed under Atelier, and nothing under `Ranvier`, `Ranvier.View`, `Ranvier.Css` or `Ranvier.WebCore`,
+  the packages this work read in source.
 
 **The transcript is not in this repository, and nobody but me has checked this section against it.** It is your
 conversation with the app, kept in your Claude folder on this machine. I tried to save an extract of it here; the
 session's permission check refused, and I did not go round it. Your ruling and your two answers are yours to
 confirm.
+
+## The port of Atelier's text tests
+
+Step 1.2 of the plan says to port Atelier's `TextSnapshotTests.fs`. The audit could not read Atelier, so it could
+not tell whether the port was whole. I compared the two files on 2026-11-19, assertion by assertion. It was not
+whole: the step was ticked with parts of four of Atelier's seven tests left out. They are added now. Each passed
+on its first run, so the library already did what they ask.
+
+| Atelier's test | Where it is here | What the port had left out, added on 2026-11-19 |
+|---|---|---|
+| 1 Insert, delete and join across mixed LF and CRLF | `Text`: "multi-line insert, delete and line join across mixed LF and CRLF" | The join across CRLF itself (the port joined across LF), Atelier's own insert at a line's end and its delete across three lines, the length, and the text of lines 1 and 2 |
+| 2 Astral characters, offsets and positions | `Text`: "astral characters count two UTF-16 units" | The line count |
+| 3 1,000,000 lines: string identity, and an edit under 5 ms | `Text`: "an edit of a 1,000,000-line text keeps other lines' strings and takes under 5 ms" | The text of the three lines read before the edit |
+| 4 An overlapping batch is refused, and the document is as it was | `ChangeSet` and `EditorState`: the overlap raises. `Editor`: "an invalid change raises and leaves the log alone" | A test at the document: "a dispatch whose changes overlap raises and leaves the document as it was", through `Document.Dispatch` and through an editor, on the text, the head, the dirty flag and the undo depth |
+| 5 Undo and redo restore the text and the caret; the journal codec | `History`: "undo then redo restores text and selection". `Document`: "the dirty flag across the saved position" | Nothing. The journal codec is not ported: the log on disk is phase 3 in the dossier |
+| 6 A typed burst in one undo group is one step | `History`: "a group id joins edits apart and in time" | Atelier's own case: "a typed burst under one group id is one step, back to the selection before it". Atelier's last assertion, that an undo closes a group left open, has no counterpart: a group here is an id on a transaction and has no open state |
+| 7 1,000,000 lines from `ofLines` hold under 65 MB; `ofUtf8` with a byte order mark | `Text`: "ofLines joins with a line feed", "ofUtf8 drops a byte order mark" | The memory bound, as "a text of 1,000,000 lines built from lines holds under 65 MB", and Atelier's byte-order-mark case with both kinds of break and characters outside ASCII |
+
+The state tests are 123, where they were 120. The 1,000,000 lines hold 40.9 MB: **measured here**, once, in a
+script on the Release library, by `GC.GetTotalMemory true` before and after `Text.ofLines`. The bound of 65 MB is
+**from** Atelier's test file.
 
 ## 7.1 Frame cost
 
@@ -578,10 +611,10 @@ unless they say otherwise):
   page as a patch in 1.1 s with the tour still stopped; an edit that does not compile was reported as an error
   and left the page as it was; the revert was patched in; an edit to `Harness.fs` was evaluated (**measured
   here**, the host's own report of one run; the first frame came 1.4 s after the host started).
-- **Both frameworks.** The state package's 120 tests run on `net10.0` and on `net8.0`. The view's tests run on
+- **Both frameworks.** The state package's 123 tests run on `net10.0` and on `net8.0`. The view's tests run on
   `net10.0`, the only target of the native host package.
 - **The traced build.** `dotnet fsi --exec build.fsx -- traced` builds both libraries with `-p:RanvierTrace=true`
-  on both frameworks, with 0 warnings, and runs the state tests on them: 120 pass on each. It works in a copy of
+  on both frameworks, with 0 warnings, and runs the state tests on them: 123 pass on each. It works in a copy of
   the tree, because a traced restore in place would replace what the untraced build and `rfs` read. One test
   reads differently there: a traced graph's event log holds the payload of each event (**from source**,
   `Ranvier/src/Ranvier/Trace.fs`), so the text a document started with is never collected, and the retention
@@ -600,6 +633,8 @@ unless they say otherwise):
   that had not been made. I had written each task's code before its tests ("The order the work was done in").
 - A section of this file was headed "Settled before the view was built". Nothing was settled before it: the two
   questions were answered by the view as built.
+- I ticked step 1.2, the port of Atelier's text tests, with parts of four of its seven tests left out ("The port
+  of Atelier's text tests").
 - I wrote that a hidden window's loop delivers no animation frames. It does (see "Found in the packages").
 - I wrote that a traced build needed three packages this machine does not have. It needs `Ranvier.Traced`,
   `Ranvier.View.Traced` and `Ranvier.View.Dom.Traced`, which are all here; I had not read the project files
@@ -629,15 +664,15 @@ Two tests failed once each in single gate runs, and passed when run again; a thi
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 120 tests, run on `net10.0` and on `net8.0`, and the view has 34.
+The state package has 123 tests, run on `net10.0` and on `net8.0`, and the view has 34.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also
 reports 0 errors.
 
 `dotnet fsi --exec build.fsx -- acceptance`: all nine rows of 7.1 pass on the recorded runs; 279.2 bytes an
-insertion (7.2); the vectorised scan at 27.4 ms against 50.0 ms (7.3); 41 of the plan's 41 steps ticked, 3 of them
-marked as made late; the 13 commits the table names are in the repository.
+insertion (7.2); the vectorised scan at 27.4 ms against 50.0 ms (7.3); 41 of the plan's 41 steps ticked, 4 of them
+marked as made or completed late; the 13 commits the table names are in the repository.
 
 `dotnet fsi --exec build.fsx -- red`: the tests of tasks 1 and 2 fail to compile without their implementation,
 each in a copy of its task's commit (figures in "The order the work was done in").
@@ -645,7 +680,7 @@ each in a copy of its task's commit (figures in "The order the work was done in"
 `dotnet fsi --exec build.fsx -- dev`: the sample under the hot reload host, window off screen: 14 of 14 steps
 pass.
 
-`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 120 state tests on
+`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 123 state tests on
 each framework.
 
 `samples/EditorShowcase --tour`: 19 of 19 checks, hidden. `--tour --shown <picture>` shows the window for the

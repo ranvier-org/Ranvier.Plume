@@ -164,9 +164,9 @@ let acceptance () =
     let plan = File.ReadAllText (Path.Combine (docs, "superpowers", "plans", "2026-11-18-plume-phase-1.md"))
     let ticked = Regex.Matches(plan, @"(?m)^- \[x\] \*\*Step").Count
     let unticked = Regex.Matches(plan, @"(?m)^- \[ \] ").Count
-    let late = Regex.Matches(plan, @"(?m)^- \[x\] \*\*Step \d+ \(made late\)").Count
+    let late = Regex.Matches(plan, @"(?m)^- \[x\] \*\*Step \d+ \((?:made|completed) late\)").Count
     printfn "The plan and the record:"
-    verdict (unticked = 0 && ticked = 41) (sprintf "%d steps ticked and %d not, of the plan's 41; %d of the ticked are marked as made late" ticked unticked late)
+    verdict (unticked = 0 && ticked = 41) (sprintf "%d steps ticked and %d not, of the plan's 41; %d of the ticked are marked as made or completed late" ticked unticked late)
     let record = File.ReadAllText (Path.Combine (docs, "ACCEPTANCE.md"))
     let from = record.IndexOf "## The plan, task by task"
     // The table ends where the next section starts.

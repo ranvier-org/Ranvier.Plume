@@ -21,6 +21,7 @@ let private editOfLargeText () =
     let first = Text.lineText 0 before
     let near = Text.lineText 500 before
     let last = Text.lineText 999_999 before
+    Expect.equal (first, near, last) ("line 0", "line 500", "line 999999") "the lines read before the edit"
 
     // Warm-up of the edit path.
     let warm = Text.ofString "line 0\nline 1\nline 2"
@@ -46,6 +47,21 @@ let private editOfLargeText () =
     Expect.isTrue (obj.ReferenceEquals (last, Text.lineText 999_999 after)) "line 999,999 identity"
     Expect.isLessThan fastest 5.0 "edit time"
 
+let private memoryOfLargeText () =
+    let lines = seq { for index in 0..999_999 -> String.Concat ("let orbitalState", string index, " = ", string (index * 3)) }
+    let before = GC.GetTotalMemory true
+    let text = Text.ofLines lines
+    let after = GC.GetTotalMemory true
+    let megabytes = float (after - before) / (1024.0 * 1024.0)
+    Expect.equal (Text.lines text) 1_000_000 "lines"
+    Expect.equal (Text.lineText 0 text) "let orbitalState0 = 0" "line 0"
+    Expect.equal (Text.lineText 999_999 text) "let orbitalState999999 = 2999997" "the last line"
+    let first = Text.line 0 text
+    Expect.equal (first.To - first.From) 21 "length of line 0"
+    // The bound Atelier's test sets for its rope of UTF-8 bytes.
+    Expect.isLessThan megabytes 65.0 "megabytes held by 1,000,000 lines"
+    GC.KeepAlive text
+
 [<Tests>]
 let tests =
     testList
@@ -57,8 +73,9 @@ let tests =
                 let initial = "line1\r\nline2\nline3\r\nline4"
                 let text = Text.ofString initial
                 Expect.equal (Text.lines text) 4 "lines"
-                Expect.equal (Text.lineText 0 text) "line1" "line 0"
-                Expect.equal (Text.lineText 3 text) "line4" "line 3"
+                Expect.equal (Text.length text) initial.Length "length"
+                Expect.equal [ for line in 0..3 -> Text.lineText line text ] [ "line1"; "line2"; "line3"; "line4" ] "the four lines"
+                expectText initial text "the whole text"
 
                 let at = Text.offsetOf 1 2 text
                 let inserted = Text.replace at at (Text.ofString "A\r\nB\nC") text
@@ -77,10 +94,30 @@ let tests =
                 let to' = Text.offsetOf 2 2 text
                 expectText (replaceString from to' "" initial) (Text.replace from to' Text.empty text) "delete across lines"
 
+                // The three edits of Atelier's test, as written there. An insert at the end of line 1.
+                let added = "\r\ninsertedA\ninsertedB"
+                let lineEnd = Text.offsetOf 1 5 text
+                let grown = Text.replace lineEnd lineEnd (Text.ofString added) text
+                expectText "line1\r\nline2\r\ninsertedA\ninsertedB\nline3\r\nline4" grown "insert at a line's end"
+                Expect.equal (Text.lines grown) 6 "lines after it"
+                expectText initial (Text.replace lineEnd (lineEnd + added.Length) Text.empty grown) "and taken out again"
+
+                // A join across CRLF removes both units of the break.
+                let joined = Text.replace (Text.offsetOf 0 5 text) (Text.offsetOf 1 0 text) Text.empty text
+                Expect.equal (Text.lines joined) 3 "lines after the join"
+                Expect.equal (Text.lineText 0 joined) "line1line2" "the joined line"
+                expectText "line1line2\nline3\r\nline4" joined "join across CRLF"
+
+                // From the middle of line 1 to the start of line 3.
+                let cut = Text.replace (Text.offsetOf 1 2 text) (Text.offsetOf 3 0 text) Text.empty text
+                Expect.equal (Text.lines cut) 2 "lines after the delete"
+                expectText "line1\r\nliline4" cut "delete across three lines"
+
             testCase "astral characters count two UTF-16 units"
             <| fun () ->
                 let source = "let 🧪 = 1"
                 let text = Text.ofString source
+                Expect.equal (Text.lines text) 1 "lines"
                 Expect.equal (Text.length text) 10 "length"
                 Expect.equal (Text.lineText 0 text) source "line"
 
@@ -94,6 +131,9 @@ let tests =
             // Run apart from the other tests: the strings a leaf keeps are counted over the whole process, and
             // texts read beside this one would push its leaves out.
             testSequenced (testCase "an edit of a 1,000,000-line text keeps other lines' strings and takes under 5 ms" editOfLargeText)
+
+            // Run apart from the other tests: it reads the memory of the whole process.
+            testSequenced (testCase "a text of 1,000,000 lines built from lines holds under 65 MB" memoryOfLargeText)
 
             testCase "offsets over CRLF and astral lines"
             <| fun () ->
@@ -257,4 +297,15 @@ let tests =
             <| fun () ->
                 let bytes = Array.append [| 0xEFuy; 0xBBuy; 0xBFuy |] (Encoding.UTF8.GetBytes "a\nb")
                 expectText "a\nb" (Text.ofUtf8 (ReadOnlySpan<byte> bytes)) "bom"
+
+                // Atelier's case: the mark, both kinds of break, and characters of two and of four bytes.
+                let source = "élan\r\n🧪 = λ\nfin"
+                let text = Text.ofUtf8 (ReadOnlySpan<byte> (Array.append [| 0xEFuy; 0xBBuy; 0xBFuy |] (Encoding.UTF8.GetBytes source)))
+                Expect.equal (Text.lines text) 3 "lines"
+                let first = Text.line 0 text
+                Expect.equal (first.Text, first.To - first.From) ("élan", 4) "line 0 and its length"
+                let second = Text.line 1 text
+                Expect.equal (second.Text, second.To - second.From) ("🧪 = λ", 6) "line 1: the astral character counts two"
+                Expect.equal (Text.lineText 2 text) "fin" "line 2"
+                expectText source text "the whole text"
         ]

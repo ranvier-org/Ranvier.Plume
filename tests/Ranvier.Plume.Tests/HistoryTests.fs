@@ -129,6 +129,32 @@ let tests =
                 Expect.equal (text once) "a01234567b89" "the edit after the group"
                 Expect.equal (text (undo once).Value) "0123456789" "the group as one item"
 
+            // Atelier's sixth text test: a typed burst under one group is one undo step.
+            testCase "a typed burst under one group id is one step, back to the selection before it"
+            <| fun () ->
+                let burst = History.newGroupId ()
+
+                let typed =
+                    start History.defaults ""
+                    |> step (Tx.group burst :: typeAt 0 "l")
+                    |> wait 2000L
+                    |> step (Tx.group burst :: typeAt 1 "e")
+                    |> wait 2000L
+                    |> step (Tx.group burst :: typeAt 2 "t")
+
+                Expect.equal (text typed, head typed) ("let", 3) "typed"
+                Expect.equal (HistoryState.undoDepth typed.History) 1 "one item for three edits apart in time"
+                let undone = (undo typed).Value
+                Expect.equal (text undone, head undone) ("", 0) "one undo takes the burst back, and the cursor with it"
+                let redone = (redo undone).Value
+                Expect.equal (text redone, head redone) ("let", 3) "one redo brings both back"
+
+                // A second burst is a step of its own: undoing it leaves the first.
+                let more = redone |> wait 2000L |> step (Tx.group (History.newGroupId ()) :: typeAt 3 " x")
+                Expect.equal (text more) "let x" "typed again"
+                Expect.equal (HistoryState.undoDepth more.History) 2 "two items"
+                Expect.equal (text (undo more).Value) "let" "the second burst alone is undone"
+
             testCase "isolateHistory splits"
             <| fun () ->
                 let typed =

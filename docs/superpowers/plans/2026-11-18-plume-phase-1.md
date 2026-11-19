@@ -19,7 +19,8 @@ Expecto.FsCheck 11.0.0-alpha8-fscheck2.
 **As carried out (added 2026-11-19):** in tasks 1 to 8 each implementation file was written before its tests, the
 reverse of the order of the steps below. The "run; it fails" steps of tasks 1 and 2 and the spike of task 8 were
 therefore not made when the plan says. Each is marked "made late" where it stands, and `docs/ACCEPTANCE.md`, "The
-order the work was done in", has the record.
+order the work was done in", has the record. Step 2 of task 1 was ticked with its port partial, and is marked
+"completed late".
 
 ## Core and view state
 
@@ -177,7 +178,9 @@ A leaf whose bytes are all ASCII uses its byte offsets as character offsets; any
 offset array.
 
 - [x] **Step 1:** Scaffold the repository; `git init`; first commit of the dossier, this plan and the scaffold.
-- [x] **Step 2:** Port `TextSnapshotTests.fs` to Expecto as `TextTests.fs` against the signatures above, and add:
+- [x] **Step 2 (completed late):** Port `TextSnapshotTests.fs` to Expecto as `TextTests.fs` against the signatures
+  above. (The port was partial when this was ticked: parts of four of Atelier's seven tests were left out. They
+  were added on 2026-11-19; `docs/ACCEPTANCE.md`, "The port of Atelier's text tests".) And add:
   - `Text offsets over CRLF and astral lines`: `ofString "a\r\nb😀c\rd"` has `length = 9`, `lines = 3`;
     `line 1` is `{ Number = 1; From = 3; To = 7; Text = "b😀c" }`; `lineAt 8` is line 2; `positionOf 5` is `struct (1, 2)`.
   - `empty text`: `length = 0`, `lines = 1`, `lineAt 0 = { Number = 0; From = 0; To = 0; Text = "" }`.
