@@ -11,7 +11,7 @@
     <Description>The state of a text editor as a fold over a log of edits, on Ranvier: an immutable rope, change sets with position mapping, selections, transactions, facets, state fields, compartments, history, commands and keymaps. No DOM dependency.</Description>
     <PackageTags>editor;text;rope;ranvier;reactive;fsharp</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <AssemblyVersion>0.0.0.0</AssemblyVersion>
     <RanvierAotClean>true</RanvierAotClean>
     <RanvierExactSiblingVersions>true</RanvierExactSiblingVersions>
