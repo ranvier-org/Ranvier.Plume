@@ -46,7 +46,7 @@ stays what it was.
 | 6 `Editor` | 3 of 3 | `baff5e2` | 14 `Editor` tests |
 | 7 Commands, keymaps, language | 3 of 3 | `71e619d` | 12 `Commands`, 4 `Keymap` and 2 `Language` tests |
 | 8 `Ranvier.Plume.View` | 4 of 4, step 1 late | `334bc51`, `7b2e860` | 41 view tests in hidden windows (34 at the end of phase 1) and 1 of a line's markup; each case of the step 2 smoke test has a test. No spike was made (step 1); its two questions are tests written after the view |
-| 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture `sample-shot.png` (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
+| 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture [editor-showcase.png](static/editor-showcase.png) (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
 | 10 SIMD checks | 3 of 3 | `26dea99` | 7.3 below: the vectorised scan is faster and is kept; `--apply` is measured. Step 3 named a commit of its own; keeping the scan changed no code, so the decision is recorded with the acceptance commit |
 | 11 Acceptance | 5 of 5 | `26dea99`, `dd00fc9`, `7b2e860`, `8360aad` | 7.1: all nine rows pass. 7.2: 279 bytes. Step 3: the profile and the fix, in 7.1. Step 4: this file, the dossier's status line and decision 17. Step 5: the gate, `rfs check`, and two fresh-context reviews with their findings fixed |
 

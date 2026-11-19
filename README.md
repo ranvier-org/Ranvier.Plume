@@ -21,6 +21,8 @@ Api.createEffect (fun () -> printfn "caret at %d" editor.Selection.Value.Main.He
 editor.Dispatch [ Tx.change { From = 4; To = 10; Insert = Text.ofString "result" }; Tx.userEvent "input.type" ]
 ```
 
+Read the [installation guide](https://ranvier-org.github.io/Ranvier.Plume/guide/introduction/), [typed shortcut guide](https://ranvier-org.github.io/Ranvier.Plume/guide/keymaps/), and [generated API reference](https://ranvier-org.github.io/Ranvier.Plume/reference/). The [documentation site](https://ranvier-org.github.io/Ranvier.Plume/) also covers shared documents, view extensions and performance probes.
+
 The design is in [docs/DOSSIER.md](docs/DOSSIER.md). Pre-1.0: the API may change.
 
 ## Bind editor commands
