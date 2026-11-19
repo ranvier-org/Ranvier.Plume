@@ -111,6 +111,37 @@ let tests =
                     Expect.equal (view.RowsWritten () - before) 3L "three rows, computed once"
                     Expect.equal view.ScrollTop.Value 20060.0 "scrolled by the sum")
 
+            testCase "the classes the view hands over style its elements through the sheet a host adopts"
+            <| fun () ->
+                withView (manyLines 100) standard 800 (fun mounted ->
+                    let styles = Ranvier.View.WebCore.ComputedStyles.forHost mounted.Window.Host
+                    let computed (element: Element) (property: string) = (styles.Get (element, None)).getPropertyValue property
+                    let handed = definition.Styles |> List.map (fun style -> style.ClassName) |> Set.ofList
+                    Expect.isNonEmpty handed "the definition hands classes over"
+                    let root = (viewportOf mounted).parentElement
+
+                    // Every class of Ranvier.Css on an element of the view is one the definition handed over.
+                    let applied =
+                        Array.append [| root |] (mounted.Query "[data-plume], [data-plume] *")
+                        |> Array.collect (fun element ->
+                            match element.getAttribute "class" with
+                            | null -> Array.empty
+                            | classes -> classes.Split (' ', StringSplitOptions.RemoveEmptyEntries))
+                        |> Array.filter (fun name -> name.StartsWith "r-")
+                        |> Set.ofArray
+
+                    Expect.isNonEmpty applied "the view's elements carry classes"
+                    Expect.isTrue (Set.isSubset applied handed) "each of them is handed over with its rules"
+
+                    // The rules took effect: an element without them would be laid out in the flow, at its content's height.
+                    let row = mounted.Rows[0]
+                    Expect.equal (computed row "position") "absolute" "a row is placed on the sheet"
+                    Expect.equal (computed row "height") "20px" "at the theme's line height"
+                    Expect.equal (computed (viewportOf mounted) "overflow-x") "hidden" "the viewport clips"
+                    Expect.equal (computed (viewportOf mounted) "font-size") "14px" "in the theme's font size"
+                    let marker = (mounted.Query "[data-pm~=cursor]")[0]
+                    Expect.equal (computed marker "pointer-events") "none" "a layer's rectangle takes no pointer")
+
             testCase "a view whose character width is not measured yet uses the theme's estimate"
             <| fun () ->
                 // The manual scheduler's timers never fire, so the view never measures after it is mounted.
@@ -139,18 +170,19 @@ let tests =
                     let view = mounted.View
                     Expect.equal scheduler.Pending 0 "a view at rest asks for no frame"
 
-                    mounted.Run (fun () ->
-                        view.ScrollTo 2000.0
-                        view.ScrollBy 20.0)
+                    // Three writes to the scroll target, each its own run of the effect that asks for a frame.
+                    mounted.Run (fun () -> view.ScrollTo 2000.0)
+                    mounted.Run (fun () -> view.ScrollBy 20.0)
+                    mounted.Run (fun () -> view.ScrollBy 20.0)
 
-                    Expect.equal scheduler.Pending 1 "one frame callback for two requests"
+                    Expect.equal scheduler.Pending 1 "one frame callback for three requests"
                     Expect.equal view.ScrollTop.Value 0.0 "the rows wait for the frame"
                     let before = view.RowsWritten ()
 
                     // No RunFrame here: the frame callback carries the request.
                     mounted.Run (fun () -> scheduler.RunFrames ())
-                    Expect.equal view.ScrollTop.Value 2020.0 "committed by the frame"
-                    Expect.equal view.Viewport.Value.FirstLine 101 "first line shown"
+                    Expect.equal view.ScrollTop.Value 2040.0 "committed by the frame"
+                    Expect.equal view.Viewport.Value.FirstLine 102 "first line shown"
                     Expect.equal (view.RowsWritten () - before) 53L "the rows are laid out once, for the last request"
                     Expect.equal scheduler.Pending 0 "and the view rests again")
 

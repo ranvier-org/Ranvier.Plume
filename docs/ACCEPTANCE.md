@@ -30,7 +30,7 @@ which the gate runs. This table is mine; the section after it is an independent 
 | 5 History and `Document` | 4 of 4 | `baff5e2`, `0f2937f` | 16 `History`, 9 `Document` and 1 `Retention` test |
 | 6 `Editor` | 3 of 3 | `baff5e2` | 14 `Editor` tests |
 | 7 Commands, keymaps, language | 3 of 3 | `71e619d` | 12 `Commands`, 4 `Keymap` and 2 `Language` tests |
-| 8 `Ranvier.Plume.View` | 4 of 4 | `334bc51`, `7b2e860` | 33 view tests in hidden windows; each case of the step 2 smoke test has a test |
+| 8 `Ranvier.Plume.View` | 4 of 4 | `334bc51`, `7b2e860` | 34 view tests in hidden windows; each case of the step 2 smoke test has a test, and the two questions of the step 1 spike are tests |
 | 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture `sample-shot.png` (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
 | 10 SIMD checks | 3 of 3 | `26dea99` | 7.3 below: the vectorised scan is faster and is kept; `--apply` is measured. Step 3 named a commit of its own; keeping the scan changed no code, so the decision is recorded with the acceptance commit |
 | 11 Acceptance | 5 of 5 | `26dea99`, `dd00fc9`, `7b2e860`, `8360aad` | 7.1: all nine rows pass. 7.2: 279 bytes. Step 3: the profile and the fix, in 7.1. Step 4: this file, the dossier's status line and decision 17. Step 5: the gate, `rfs check`, and two fresh-context reviews with their findings fixed |
@@ -464,7 +464,7 @@ Two tests failed once each in single gate runs, and passed when run again; a thi
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 120 tests, run on `net10.0` and on `net8.0`, and the view has 33.
+The state package has 120 tests, run on `net10.0` and on `net8.0`, and the view has 34.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also
