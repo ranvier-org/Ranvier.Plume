@@ -42,6 +42,8 @@ let movement =
 For bindings loaded from text configuration, `Keymap.bind` and `Keymap.bindShift` accept editor
 notation such as `"Ctrl-z"` and `"Ctrl-k Ctrl-c"`.
 
+The [formal verification suite](proofs/README.md) covers edit inversion, retained history and reader cursor ownership, with conformance checks against the compiled editor.
+
 ## Build, test and measure
 
 ```

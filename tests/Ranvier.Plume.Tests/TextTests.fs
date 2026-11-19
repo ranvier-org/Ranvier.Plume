@@ -113,6 +113,21 @@ let tests =
                 Expect.equal (Text.lines cut) 2 "lines after the delete"
                 expectText "line1\r\nliline4" cut "delete across three lines"
 
+            testCase "unpaired surrogates survive materialization and leaf edits"
+            <| fun () ->
+                let high = string (char 0xD83D)
+                let low = string (char 0xDE42)
+                for line in [high; low; "a" + high + "b"; low + high] do
+                    let lines = Array.init 300 (fun i -> if i % 31 = 0 then line else "abc")
+                    let raw = String.concat "\n" lines
+                    for text in [Text.ofString raw; Text.ofLines lines] do
+                        Expect.equal (Text.toString text) raw "exact UTF-16 units"
+                        let clipped = Text.slice 1 (raw.Length - 1) text
+                        Expect.equal (Text.toString clipped) (raw.Substring(1, raw.Length - 2)) "split leaves"
+                    Expect.isFalse (Text.contentEquals (Text.ofString line) (Text.ofString (line.Replace(high, "�").Replace(low, "�")))) "replacement differs"
+                let repaired = Text.replace 1 1 (Text.ofString low) (Text.ofString high)
+                Expect.equal (Text.toString repaired) (high + low) "pair restored"
+
             testCase "astral characters count two UTF-16 units"
             <| fun () ->
                 let source = "let 🧪 = 1"

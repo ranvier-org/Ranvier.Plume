@@ -16,6 +16,8 @@ type internal LeafData =
         LineOffsets: int[]
         LineCount: int
         CharLength: int
+        /// Sparse originals for lines containing UTF-16 units that UTF-8 cannot encode.
+        ExactLines: string[]
         mutable CachedLines: WeakReference<string[]>
     }
 
@@ -99,11 +101,40 @@ module internal Rope =
         (leaf.LineOffsets[i + 1] - leaf.LineOffsets[i])
         - endingCharLen leaf.EndingKinds[i]
 
+    let private needsExact (line: ReadOnlySpan<char>) =
+        let mutable pos = 0
+        let mutable unpaired = false
+        while pos < line.Length && not unpaired do
+#if FABLE_COMPILER
+            let mutable next = pos
+            while next < line.Length && not (Char.IsSurrogate line[next]) do
+                next <- next + 1
+            let offset = if next = line.Length then -1 else next - pos
+#else
+            let offset = line.Slice(pos).IndexOfAnyInRange(char 0xD800, char 0xDFFF)
+#endif
+            if offset < 0 then pos <- line.Length
+            else
+                pos <- pos + offset
+                if pos + 1 < line.Length && Char.IsSurrogatePair(line[pos], line[pos + 1]) then
+                    pos <- pos + 2
+                else unpaired <- true
+        unpaired
+
+    let private exactLine (leaf: LeafData) i =
+        if isNull leaf.ExactLines then null else leaf.ExactLines[i]
+
+    let private saveExact count i line (exact: string[]) =
+        let values = if isNull exact then Array.zeroCreate count else exact
+        values[i] <- line
+        values
+
     let private decodeLine (leaf: LeafData) (i: int) : string =
         let start = leaf.ByteOffsets[i]
         let length = leaf.ByteOffsets[i + 1] - start
 
-        if length = 0 then
+        if not (isNull (exactLine leaf i)) then exactLine leaf i
+        elif length = 0 then
             ""
         else
             Encoding.UTF8.GetString (leaf.Utf8Bytes, start, length)
@@ -142,6 +173,7 @@ module internal Rope =
             EndingKinds = [| lastKind |]
             LineOffsets = [| 0; endLength |]
             LineCount = 1
+            ExactLines = null
             CharLength = endLength
             CachedLines = Unchecked.defaultof<WeakReference<string[]>>
         }
@@ -149,6 +181,7 @@ module internal Rope =
     /// A leaf of `lines`, which hold no line break. The leaf keeps the array.
     let makeLeafFromStrings (lines: string[]) (endingKinds: byte[]) : LeafData =
         let n = lines.Length
+        let mutable exact = null
         let mutable totalBytes = 0
 
         for k = 0 to n - 1 do
@@ -170,6 +203,7 @@ module internal Rope =
             lineOffsets[k] <- charAt
             let line = lines[k]
 
+            if needsExact (line.AsSpan()) then exact <- saveExact n k line exact
             if line.Length > 0 then
                 byteAt <- byteAt + Encoding.UTF8.GetBytes (line.AsSpan (), utf8.AsSpan byteAt)
 
@@ -185,6 +219,7 @@ module internal Rope =
             LineOffsets = lineOffsets
             LineCount = n
             CharLength = charAt
+            ExactLines = exact
             CachedLines = WeakReference<string[]> lines
         }
 
@@ -234,6 +269,7 @@ module internal Rope =
             EndingKinds = endings
             LineOffsets = lineOffsets
             LineCount = count
+            ExactLines = if isNull leaf.ExactLines then null else Array.sub leaf.ExactLines first count
             CharLength = lineOffsets[count]
             CachedLines = cache
         }
@@ -348,6 +384,13 @@ module internal Rope =
             EndingKinds = endings
             LineOffsets = lineOffsets
             LineCount = count
+            ExactLines =
+                if isNull a.ExactLines && isNull b.ExactLines then null
+                else
+                    let exact = Array.zeroCreate count
+                    if not (isNull a.ExactLines) then Array.blit a.ExactLines 0 exact 0 a.LineCount
+                    if not (isNull b.ExactLines) then Array.blit b.ExactLines 0 exact a.LineCount b.LineCount
+                    exact
             CharLength = a.CharLength + b.CharLength
             CachedLines = cache
         }
@@ -411,10 +454,13 @@ module internal Rope =
         let n = spans.Count
 
         if n > 0 then
+            let mutable exact = null
             let mutable totalBytes = 0
 
             for k = 0 to n - 1 do
                 let struct (start, length, _) = spans[k]
+                if needsExact (text.AsSpan(start, length)) then
+                    exact <- saveExact n k (text.Substring(start, length)) exact
 
                 if length > 0 then
                     totalBytes <- totalBytes + Encoding.UTF8.GetByteCount (text.AsSpan (start, length))
@@ -453,6 +499,7 @@ module internal Rope =
                     LineOffsets = lineOffsets
                     LineCount = n
                     CharLength = charAt
+                    ExactLines = exact
                     CachedLines = Unchecked.defaultof<WeakReference<string[]>>
                 }
 
@@ -584,6 +631,7 @@ module internal Rope =
                     LineOffsets = lineOffsets
                     LineCount = n
                     CharLength = charAt
+                    ExactLines = null
                     CachedLines = Unchecked.defaultof<WeakReference<string[]>>
                 }
 
@@ -771,6 +819,12 @@ module internal Rope =
                     Utf8Bytes = utf8
                     ByteOffsets = byteOffsets
                     LineOffsets = lineOffsets
+                    ExactLines =
+                        let exceptional = needsExact (line.AsSpan())
+                        if not exceptional && isNull (exactLine leaf target) then leaf.ExactLines
+                        else
+                            let copy = if isNull leaf.ExactLines then null else Array.copy leaf.ExactLines
+                            saveExact n target (if exceptional then line else null) copy
                     CharLength = lineOffsets[n]
                     CachedLines = cache
                 }
@@ -965,38 +1019,69 @@ module internal Rope =
 
                 (concatOpt (Some head) (concatOpt middle (Some tail))).Value
 
+#if FABLE_COMPILER
+    let private collectText (root: Node) : string =
+        let builder = StringBuilder root.CharLength
+        let buffer = ArrayPool<char>.Shared.Rent 4096
+
+        let rec walk (node: Node) =
+            match node with
+            | Leaf leaf ->
+                for i = 0 to leaf.LineCount - 1 do
+                    let start = leaf.ByteOffsets[i]
+                    let length = leaf.ByteOffsets[i + 1] - start
+
+                    let exact = exactLine leaf i
+                    if not (isNull exact) then builder.Append(exact) |> ignore
+                    elif length > 0 then
+                        if length <= buffer.Length then
+                            let chars = Encoding.UTF8.GetChars (leaf.Utf8Bytes, start, length, buffer, 0)
+                            builder.Append (buffer, 0, chars) |> ignore
+                        else
+                            builder.Append (Encoding.UTF8.GetString (leaf.Utf8Bytes, start, length))
+                            |> ignore
+
+                    builder.Append (endingString leaf.EndingKinds[i]) |> ignore
+            | Branch b ->
+                walk b.Left
+                walk b.Right
+
+        try
+            walk root
+            builder.ToString ()
+        finally
+            ArrayPool<char>.Shared.Return buffer
+
+#else
+    let rec private fillText (target: Span<char>) (node: Node) =
+        match node with
+        | Branch b ->
+            fillText (target.Slice(0, b.Left.CharLength)) b.Left
+            fillText (target.Slice(b.Left.CharLength)) b.Right
+        | Leaf leaf ->
+            for i = 0 to leaf.LineCount - 1 do
+                let start = leaf.LineOffsets[i]
+                let length = leafLineCharLen leaf i
+                let chars = target.Slice(start, length)
+                let exact = exactLine leaf i
+                if not (isNull exact) then exact.AsSpan().CopyTo(chars)
+                else
+                    let first = leaf.ByteOffsets[i]
+                    let bytes = leaf.Utf8Bytes.AsSpan(first, leaf.ByteOffsets[i + 1] - first)
+                    Encoding.UTF8.GetChars(bytes, chars) |> ignore
+                (endingString leaf.EndingKinds[i]).AsSpan().CopyTo(target.Slice(start + length))
+
+    let private fillString = SpanAction<char,Node>(fun target node -> fillText target node)
+
+    let private collectText (root: Node) =
+        String.Create(root.CharLength, root, fillString)
+#endif
+
     let getText (root: Node) : string =
-        if root.CharLength = 0 then
-            ""
-        else
-            let builder = StringBuilder root.CharLength
-            let buffer = ArrayPool<char>.Shared.Rent 4096
-
-            let rec walk (node: Node) =
-                match node with
-                | Leaf leaf ->
-                    for i = 0 to leaf.LineCount - 1 do
-                        let start = leaf.ByteOffsets[i]
-                        let length = leaf.ByteOffsets[i + 1] - start
-
-                        if length > 0 then
-                            if length <= buffer.Length then
-                                let chars = Encoding.UTF8.GetChars (leaf.Utf8Bytes, start, length, buffer, 0)
-                                builder.Append (buffer, 0, chars) |> ignore
-                            else
-                                builder.Append (Encoding.UTF8.GetString (leaf.Utf8Bytes, start, length))
-                                |> ignore
-
-                        builder.Append (endingString leaf.EndingKinds[i]) |> ignore
-                | Branch b ->
-                    walk b.Left
-                    walk b.Right
-
-            try
-                walk root
-                builder.ToString ()
-            finally
-                ArrayPool<char>.Shared.Return buffer
+        match root with
+        | _ when root.CharLength = 0 -> ""
+        | Leaf leaf when leaf.LineCount = 1 && leaf.EndingKinds[0] = EndingNone -> leafLineText leaf 0
+        | _ -> collectText root
 
     let contentEquals (a: Node) (b: Node) : bool =
         if obj.ReferenceEquals (a, b) then
@@ -1020,6 +1105,7 @@ module internal Rope =
                 equal <-
                     leafA.EndingKinds[i] = leafB.EndingKinds[j]
                     && spanA.SequenceEqual spanB
+                    && String.Equals(exactLine leafA i, exactLine leafB j, StringComparison.Ordinal)
 
                 line <- line + 1
 

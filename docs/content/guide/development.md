@@ -5,6 +5,8 @@ description: Run the native showcase and reproduce the project checks.
 
 # Development and measurement
 
+The [verification guide](verification.md) explains the Rocq models, Iris heap proof and comparisons with compiled F#.
+
 From the checkout, run these commands in separate invocations.
 
 ```sh

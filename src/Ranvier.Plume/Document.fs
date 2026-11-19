@@ -43,6 +43,7 @@ type Document internal (config: DocumentConfig) =
     let log = ResizeArray<Transaction> ()
     let mutable firstSeq = 1L
     let readers = ResizeArray<ReaderCursor> ()
+    let mutable oldestIndex = 0
 
     let text =
         Api.createMemo (fun (_: Text voption) ->
@@ -84,16 +85,22 @@ type Document internal (config: DocumentConfig) =
         int index
 
     let trim () =
-        let mutable keepFrom = head.Peek + 1L
+        // Disposal can shift the index. Any live reader at the cut witnesses the minimum.
+        if readers.Count = 0 then
+            log.Clear()
+            firstSeq <- head.Peek + 1L
+        elif oldestIndex >= readers.Count || readers[oldestIndex].At <> firstSeq - 1L then
+            let mutable keepFrom = head.Peek + 1L
+            for i = 0 to readers.Count - 1 do
+                let candidate = readers[i].At + 1L
+                if candidate < keepFrom then
+                    keepFrom <- candidate
+                    oldestIndex <- i
 
-        for reader in readers do
-            keepFrom <- min keepFrom (reader.At + 1L)
-
-        let dropped = int (keepFrom - firstSeq)
-
-        if dropped > 0 then
-            log.RemoveRange (0, min dropped log.Count)
-            firstSeq <- keepFrom
+            let dropped = int (keepFrom - firstSeq)
+            if dropped > 0 then
+                log.RemoveRange (0, min dropped log.Count)
+                firstSeq <- keepFrom
 
     /// `pending`, written against an older position, moved over the transactions appended since.
     let rebase (pending: Transaction) (at: int64) : Transaction =
