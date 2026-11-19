@@ -4,6 +4,7 @@
     <PropertyGroup>
         <FSharpCoreImplicitPackageVersion>9.0.100</FSharpCoreImplicitPackageVersion>
         <FablePackageType>library</FablePackageType>
+        <DebugType>embedded</DebugType>
         <NuspecOutputPath Condition="'$(NuspecOutputPath)' == ''">$(MSBuildThisFileDirectory)../bin/nuspec/$(MSBuildProjectName)/$(Configuration)/</NuspecOutputPath>
     </PropertyGroup>
 
@@ -12,8 +13,4 @@
         <AssemblyMetadata Include="RanvierLibrary" Value="true" />
     </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Include="Fable.Package.SDK" Version="1.4.1" PrivateAssets="all"
-                          IncludeAssets="runtime;build;native;contentfiles;analyzers;buildtransitive" />
-    </ItemGroup>
 </Project>

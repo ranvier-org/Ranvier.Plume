@@ -26,7 +26,7 @@ jobs:
         run: |
           foreach ($trace in 'false','true') {
             foreach ($id in 'Ranvier.Plume','Ranvier.Plume.View') {
-              dotnet pack "src/$id/$id.fsproj" -c Release "-p:RanvierTrace=$trace" -o artifacts/packages
+              dotnet pack "src/$id/$id.fsproj" -c Release "-p:RanvierTrace=$trace" --artifacts-path "artifacts/build-$trace" -o artifacts/packages
               if ($LASTEXITCODE) { exit $LASTEXITCODE }
             }
           }
