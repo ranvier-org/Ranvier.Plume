@@ -37,6 +37,10 @@ which the gate runs.
 
 The state tests sum to 112 and run on `net10.0`, on `net8.0`, and on the traced core on both.
 
+`dotnet fsi --exec build.fsx -- acceptance` recomputes the verdicts of section 7 without this file's prose: 7.1
+from the ten recorded runs in `bench/` by the rule of dossier 7.1, 7.2 and 7.3 from runs it makes, the plan's
+boxes, and the commits this table names. It exits 1 when one of them does not hold.
+
 What ran beyond the plan's steps is under "What the plan's checks ran in, and what is outside them".
 
 ## 7.1 Frame cost
@@ -427,6 +431,10 @@ The state package has 112 tests, run on `net10.0` and on `net8.0`, and the view 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also
 reports 0 errors.
+
+`dotnet fsi --exec build.fsx -- acceptance`: all nine rows of 7.1 pass on the recorded runs; 279.2 bytes an
+insertion (7.2); the vectorised scan at 27.4 ms against 50.0 ms (7.3); 41 of the plan's 41 steps ticked; the 13
+commits the table names are in the repository.
 
 `dotnet fsi --exec build.fsx -- dev`: the sample under the hot reload host, window off screen: 14 of 14 steps
 pass.

@@ -41,3 +41,6 @@ copy of its sources, through the steps of `samples/EditorShowcase/hot-reload.jso
 
 `dotnet fsi --exec build.fsx -- traced` builds both libraries with `-p:RanvierTrace=true` and runs the state tests
 on them, in a copy of the tree.
+
+`dotnet fsi --exec build.fsx -- acceptance` recomputes the verdicts of the dossier's section 7 from the recorded
+benchmark runs in `docs/bench` and from memory and loading runs it makes.

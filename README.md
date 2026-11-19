@@ -35,6 +35,7 @@ tests open hidden windows).
 `dotnet fsi --exec build.fsx -- dev` runs the sample under the hot reload host, window off screen, and checks that
 edits to a copy of its sources reach the page.
 `dotnet fsi --exec build.fsx -- traced` builds both libraries on the traced core and runs the state tests on them.
+`dotnet fsi --exec build.fsx -- acceptance` recomputes the acceptance verdicts of the dossier's section 7.
 
 The sample in `samples/EditorShowcase` is the workspace's `EditorShowcase` rebuilt on the library:
 
