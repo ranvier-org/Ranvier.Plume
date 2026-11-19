@@ -160,4 +160,25 @@ let columnTests =
                         let column = Columns.columnOf line tabSize at
                         Expect.equal (Columns.offsetAt line tabSize (float column)) at (sprintf "offset %d of a line of %d units at tab size %d" at line.Length tabSize)
                         at <- if at < line.Length then at + Grapheme.nextClusterLength line at else at + 1
+
+            // Each code point's width here is its class in Unicode 18.0.0's EastAsianWidth.txt: two columns for
+            // the classes W and F, one for any other.
+            testCase "the width of a character is its East Asian Width class in Unicode"
+            <| fun () ->
+                let width (codePoint: int) = Columns.widthAt (Char.ConvertFromUtf32 codePoint + "x") 4 0
+
+                let wide =
+                    [
+                        0x1100; 0x115F; 0x231A; 0x23F0; 0x2614; 0x26A1; 0x2705; 0x2B50; 0x3000; 0x303E; 0x3041; 0x4DC0; 0x6F22
+                        0xA4C6; 0xAC00; 0xFE10; 0xFE19; 0xFF21; 0x17000; 0x1B000; 0x1F004; 0x1F18E; 0x1F600; 0x1F64F; 0x1F680; 0x3FFFD
+                    ]
+
+                let narrow =
+                    [
+                        0xA1; 0xE9; 0x3BB; 0x1160; 0x2764; 0x303F; 0x3248; 0xA4C7; 0xFE1A; 0xFF00; 0xFF61
+                        0x1F321; 0x1F336; 0x1F43F; 0x1F650; 0x1F6E0; 0x1F900; 0x1FAFF; 0x2FFFE; 0x3FFFE
+                    ]
+
+                Expect.equal [ for codePoint in wide do if width codePoint <> 2 then codePoint.ToString "X4" ] [] "code points of two columns that take another width"
+                Expect.equal [ for codePoint in narrow do if width codePoint <> 1 then codePoint.ToString "X4" ] [] "code points of one column that take another width"
         ]
