@@ -130,15 +130,17 @@ let acceptance () =
     let baseline = [ for run in 1..5 -> totals (sprintf "baseline-%d.txt" run) ]
     let sample = [ for run in 1..5 -> totals (sprintf "plume-%d.txt" run) ]
     printfn "7.1 Frame cost, from the ten recorded runs in docs/bench (workload, recycling, cache, layer):"
+    let keys = baseline.Head |> List.map fst
+    // Every run has the nine rows of the first, each once: a row is then found by its settings, not its place.
+    let whole = baseline @ sample |> List.forall (fun run -> List.sort (List.map fst run) = List.sort keys && (List.distinct keys).Length = keys.Length)
+    verdict (whole && keys.Length = 9) (sprintf "each of the ten runs has the same %d rows" keys.Length)
 
-    for index in 0 .. baseline.Head.Length - 1 do
-        let key = fst baseline.Head[index]
-        let theirs = baseline |> List.map (fun run -> snd run[index])
-        let ours = sample |> List.map (fun run -> snd run[index])
-        let mean = List.average ours
-        verdict (mean <= List.max theirs) (sprintf "%s: the sample's mean total %.3f ms; the baseline's runs %.3f to %.3f ms" key mean (List.min theirs) (List.max theirs))
-
-    verdict (baseline.Head.Length = 9) (sprintf "%d rows in a run" baseline.Head.Length)
+    if whole then
+        for key in keys do
+            let theirs = baseline |> List.map (fun run -> run |> List.find (fun (name, _) -> name = key) |> snd)
+            let ours = sample |> List.map (fun run -> run |> List.find (fun (name, _) -> name = key) |> snd)
+            let mean = List.average ours
+            verdict (mean <= List.max theirs) (sprintf "%s: the sample's mean total %.3f ms; the baseline's runs %.3f to %.3f ms" key mean (List.min theirs) (List.max theirs))
 
     // 7.2: under 512 bytes an insertion once the document is saved.
     let struct (memory, memoryExit) = capture "dotnet" "run -c Release --no-build --project samples/EditorShowcase -- --memory"
@@ -164,7 +166,8 @@ let acceptance () =
     verdict (unticked = 0 && ticked = 41) (sprintf "%d steps ticked and %d not, of the plan's 41" ticked unticked)
     let record = File.ReadAllText (Path.Combine (docs, "ACCEPTANCE.md"))
     let from = record.IndexOf "## The plan, task by task"
-    let until = record.IndexOf "## 7.1 Frame cost"
+    // The table ends where the next section starts.
+    let until = if from < 0 then -1 else record.IndexOf ("\n## ", from + 1)
 
     let commits =
         if from < 0 || until < from then

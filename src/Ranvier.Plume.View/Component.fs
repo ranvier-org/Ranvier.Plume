@@ -120,7 +120,8 @@ module internal Surface =
         let scrollTarget = Api.createSignal 0.0
         let scroll = Api.createSignal 0.0
         let height = Api.createSignal 0.0
-        let charWidth = Api.createSignal 7.7
+        // Until the probe is measured: a character of a monospaced face advances about 0.55 of the font size.
+        let charWidth = Api.createSignal (config.Theme.FontSize * 0.55)
         let focused = Api.createSignal false
         let mounts = Api.createSignal 0
         let written = ref 0L

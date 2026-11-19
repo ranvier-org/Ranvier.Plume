@@ -248,9 +248,20 @@ let tests =
             <| fun () ->
                 let state = stateOf "hello" []
                 let custom = Annotation.define<int> ()
+                let mark = StateEffect.define (fun (value: int) (_: ChangeDesc) -> ValueSome value)
 
                 let transaction =
-                    EditorState.transaction [ insert 0 "x"; Tx.userEvent "input.type"; Tx.annotate (custom.Of 42); Tx.scrollIntoView; Tx.group 9L ] state
+                    EditorState.transaction
+                        [
+                            insert 0 "x"
+                            Tx.selection (EditorSelection.single 2 2)
+                            Tx.effect (mark.Of 7)
+                            Tx.userEvent "input.type"
+                            Tx.annotate (custom.Of 42)
+                            Tx.scrollIntoView
+                            Tx.group 9L
+                        ]
+                        state
 
                 Expect.isTrue transaction.DocChanged "doc changed"
                 Expect.isTrue transaction.ScrollIntoView "scroll"
@@ -263,8 +274,12 @@ let tests =
                 Expect.isFalse (Transaction.isUserEvent "delete" transaction) "delete"
                 Expect.equal transaction.StartSelection (ValueSome state.Selection) "start selection"
 
+                Expect.isTrue transaction.Selection.IsSome "it sets a selection"
+                Expect.equal transaction.Effects.Length 1 "and carries an effect"
+
                 let foreign = Transaction.asForeign transaction
                 Expect.equal foreign.Selection ValueNone "no selection"
+                Expect.equal foreign.StartSelection ValueNone "no selection to go back to"
                 Expect.equal foreign.Effects.Length 0 "no effects"
                 Expect.isFalse foreign.ScrollIntoView "no scroll"
                 Expect.isTrue foreign.DocChanged "changes stay"

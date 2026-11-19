@@ -19,7 +19,8 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 
 The plan (`superpowers/plans/2026-11-18-plume-phase-1.md`) has 11 tasks and 41 steps. Every step is ticked, and
 each task's evidence below is on the tree as committed: the test counts are the lists of the two test projects,
-which the gate runs. This table is mine; the section after it is an independent audit of the same 41 steps.
+which the gate runs. This table is mine; the section after it is an independent audit of the same 41 steps, and
+its step-by-step verdicts are the ones to go by.
 
 | Task | Steps | Commits | Evidence |
 |---|---|---|---|
@@ -45,40 +46,115 @@ What ran beyond the plan's steps is under "What the plan's checks ran in, and wh
 
 ## Independent audit of the plan
 
-An auditor with no part in the work checked each of the plan's 41 steps against the repository at commit
-`47017bb`, in a checkout of its own: it read the code and the tests, ran every gate, re-ran the sample's modes, and
-recomputed 7.1 both from the recorded logs and from five pairs of its own. The figures in this section are the
-auditor's.
+An auditor with no part in the work checked each of the plan's 41 steps against the repository, twice, in
+checkouts of its own: at commit `47017bb`, and again at `b312a86` after its first list had been acted on. It read
+the code and the tests, ran every gate, re-ran the sample's modes, mutated the code to see tests fail, and made
+its own benchmark runs. Every figure and every verdict in this section is the auditor's.
 
-**Its verdict: the plan is complete except for a named list.** No step is "not done". 24 are done as written, 14
-are done differently, and 3 left nothing it could check. By the rule of 7.1 all nine rows pass on the recorded
-logs and on its own five pairs. In its own pairs typing was level with the baseline (1.452 against 1.448 ms, and
-1.391 against the baseline's range of 1.312 to 1.650 ms with the cache off) and lower in 1 pair of 5, where the
-recorded session has it lower in 5 of 5: "level" is the claim that holds across sessions. Its 7.2 is 279.2 bytes
-and its 7.3 is 26.9 ms against 50.4 ms.
+**Its answer at `b312a86`: yes. The intent of every one of the 41 steps is met, and nothing is "not done".** 26
+steps are done as written, 13 are done differently with the difference recorded in the repository, and 2 (the
+failing first runs of 1.3 and 2.2) cannot be shown as acts in time; re-enacted, each fails for the reason the plan
+gives.
 
-What it listed, and what was done:
+| Step | Verdict | The auditor's note |
+|---|---|---|
+| 1.1 | Done differently, recorded | In `20c43cd` with 1.5 |
+| 1.2 | Done differently, recorded | Seeded loops plus five FsCheck properties (dossier 11, "Tests") |
+| 1.3 | Cannot tell | Re-enacted: without `Text`, the tests of `20c43cd` fail to compile (`FS0039: The type 'Text' is not defined`) |
+| 1.4 | Done | |
+| 1.5 | Done differently, recorded | Commit shared with 1.1 |
+| 2.1 | Done | All eight named cases are tests |
+| 2.2 | Cannot tell | Re-enacted: without `ChangeSet.fs`, the tests of `673af03` fail to compile |
+| 2.3, 2.4 | Done | |
+| 3.1, 3.2, 3.3 | Done | |
+| 4.1, 4.2, 4.3 | Done | |
+| 5.1 | Done differently, recorded | Dossier 11, "5.6 Undo of deleted text" |
+| 5.2 | Done | `PostAt` is tested |
+| 5.3 | Done | |
+| 5.4 | Done differently, recorded | `baff5e2` holds tasks 5 and 6 |
+| 6.1 | Done | The log's length is 0 with no reader |
+| 6.2 | Done differently, recorded | `Editor.undo` and `Editor.redo` (dossier 11, row 5.6) |
+| 6.3 | Done differently, recorded | No commit of its own |
+| 7.1 | Done | |
+| 7.2 | Done differently, recorded | Dossier 11, rows 5.7 and 5.9 |
+| 7.3 | Done | |
+| 8.1 | Done differently, recorded | The spike's two questions are kept as tests; that it ran before the view is history |
+| 8.2 | Done | |
+| 8.3 | Done differently, recorded | Dossier 11, rows 5.8 and 4.5 |
+| 8.4 | Done | 34 view tests pass |
+| 9.1, 9.2, 9.3, 9.4 | Done | `--bench` five times; `--memory` and `--load` through the acceptance target |
+| 10.1 | Done | 26.2 ms against 49.2 ms |
+| 10.2 | Done | |
+| 10.3 | Done differently, recorded | No commit: keeping the scan changed no code |
+| 11.1 | Done differently, recorded | Five runs for three; judged by total under decision 18 |
+| 11.2 | Done | 279.2 bytes |
+| 11.3, 11.4 | Done | |
+| 11.5 | Done differently, recorded | The boxes were ticked early. The audit is itself a fresh-context review whose findings were acted on |
+
+**Its gates at `b312a86`**, all with exit code 0: `ci` with 0 warnings, 120 state tests on `net10.0`, 120 on
+`net8.0` and 34 view tests; `check` with 0 errors in 5 projects; `traced` with 120 and 120; `dev` with 14 of 14
+steps; `acceptance` with every check passing, its nine 7.1 figures equal to the auditor's own recomputation.
+
+**Its 7.1 on the current code.** The ten recorded logs are of `7b2e860`. One later change is on the typing path
+(the log is trimmed after the head moves), so the auditor ran five new alternating pairs at `b312a86` on a noisy
+machine. All nine rows pass:
+
+| Row (recycling, cache, layer) | Sample's mean total, ms | Baseline's runs, ms | Verdict |
+|---|---|---|---|
+| lines x3, on, on, on | 1.586 | 1.537 to 1.910 | pass, inside |
+| lines x3, off, on, on | 6.286 | 7.940 to 9.411 | pass, below |
+| lines x3, on, off, on | 1.554 | 1.578 to 1.709 | pass, below |
+| lines x3, off, off, on | 6.514 | 10.121 to 11.705 | pass, below |
+| lines x3, on, on, off | 1.462 | 1.540 to 1.923 | pass, below |
+| 7 px, on, on, on | 0.545 | 0.858 to 1.243 | pass, below |
+| 7 px, on, on, off | 0.389 | 0.829 to 1.006 | pass, below |
+| typing, on, on, on | 1.289 | 1.265 to 1.389 | pass, inside |
+| typing, on, off, on | 1.468 | 1.307 to 1.475 | pass, inside |
+
+The last row passes by 0.007 ms; its five sample runs ranged from 1.271 to 1.728 ms. In the auditor's first five
+pairs, at `47017bb`, typing was 1.452 against 1.448 ms with the cache on, lower in 1 pair of 5, and 1.391 ms
+against a baseline range of 1.312 to 1.650 ms with it off, lower in 4 of 5. The recorded session has the cache-on
+row lower in 5 of 5. Across the three sessions the claim that holds is that typing is level with the baseline.
+
+**Tests it saw fail when it broke the code**, each restored afterwards: line length counted in UTF-8 bytes fails
+three of the five properties after one generated case; `PostAt` ignoring its base fails the `PostAt` test; the
+handed-over rules left out of the host's sheet fail the class test ("expected: absolute, actual: static");
+`scheduler.Frame` in place of `Frames.frame` fails the frame-callback test ("expected: 1, actual: 3"); a starting
+character width of 0 fails the unmeasured-width test.
+
+**What its first audit listed, and what was done:**
 
 | The audit found | Done about it |
 |---|---|
-| No test of a view whose character width is not measured yet (plan, Review Focus 6) | Added: the view lays out, finds positions and draws the cursor on the theme's estimate |
-| Expecto.FsCheck, named in the plan's stack, was never used; every property was a seeded loop | Five properties run by Expecto.FsCheck are added, over every kind of line break and characters outside ASCII. With one expectation broken on purpose, FsCheck reports it after 2 tests |
+| No test of a view whose character width is not measured yet (plan, Review Focus 6) | Added. The re-audit then found the width was a constant where this file said "the theme's estimate"; the starting width is now 0.55 of the theme's font size, and the test asserts that |
+| Expecto.FsCheck, named in the plan's stack, was never used; every property was a seeded loop | Five properties run by Expecto.FsCheck, 500 generated cases each, over every kind of line break and characters outside ASCII |
 | The random replacements used ASCII alphabets (Review Focus 1) | The same five properties |
-| `PostAt` had no test (the plan's test of an older head names it) | Added: posted from another thread, mapped when the graph pumps |
+| `PostAt` had no test | Added: posted from another thread, mapped when the graph pumps |
 | No test where another editor's edit leaves a selection beyond the document (Review Focus 4) | Added |
 | "The removed text is the replaced slice" was a helper inside four tests | Added as a test of its own |
-| The dispose test asserted a log of 1 transaction where the plan says 0 | The log is trimmed after the head moves: with no reader it is empty, and the three tests assert 0 |
-| Differences from the plan's signatures that the dossier did not list: the theme, the view's configuration, the row window, the key notation, the unused `TokenCache`, undo of deleted text, the files | Listed in the dossier, section 11 |
+| The dispose test asserted a log of 1 transaction where the plan says 0 | The log is trimmed after the head moves: with no reader it is empty. Two tests assert 0, in three places |
+| The assertions on a foreign transaction stripped a selection and effects that were not there | The transaction of that test now sets a selection and carries an effect |
+| Differences from the plan's signatures that the dossier did not list | Listed in the dossier, section 11: 14 rows added, the theme, the view's configuration, the row window and slots, the key notation, the unused `TokenCache`, undo of deleted text, older heads, the files and the test style among them |
 | The dossier said 71 ms for many-range apply; this file says 49.4 | The dossier's figure was from before the leaf-merge fix; corrected |
-| Figures without a label in a doc comment and in three commit messages | The doc comment names its source. Commit messages are history and stay |
-| The plan was ticked closed in `26dea99` while its own record said 7.1 needed a ruling | True. It held from `7b2e860`; the table above gives the commits of each task |
-| No commit of their own for steps 1.1, 6.3 and 10.3 | True: 1.1 is in `20c43cd` with 1.5, 6.3 in `baff5e2` with 5.4, and 10.3 changed no code |
-| Nothing to check for the failing first runs of steps 1.3 and 2.2, or for the spike of 8.1 | True: no artefact of them was kept. What the spike asked is covered by kept checks: the sample refuses to run when a class has no rule, and a test shows one frame callback for several requests |
-| By the rule of 7.1 as first written (App and Turn each), one scroll row fails on Turn | That is what the ruling of 2026-11-19 settled (decision 18): the two apps put the page's layout in different stopwatches |
+| A figure without a label in a doc comment | It names its source |
+| The line-string test edits line 500,000 of 1,000,001, where the plan had line 500 of 1,000 | Kept: the larger text is the stricter test |
 
-It could not check from the repository: that the baseline's stopwatch is the only edit outside this folder, that
-Atelier was left alone, that the ten logs came from one alternating session, that the reviews were fresh-context,
-and your say for the two shown runs.
+**What stays as it is, because it is history:** the plan's boxes were ticked in `26dea99` while 7.1 still needed
+a ruling, and it has held since `7b2e860`; steps 1.1, 6.3 and 10.3 have no commit of their own; commit messages
+`0f2937f`, `f4beb7f`, `7b2e860` and `f04dbaa` carry figures without a label; and by the rule of 7.1 as first
+written (App and Turn each) one scroll row fails on Turn, which is what the ruling of 2026-11-19 settled (decision
+18).
+
+**What it could not tell from the repository:** that the failing first runs were made and that the spike came
+before the view; whether the port of Atelier's text tests is complete (Atelier is off limits to it); that the
+baseline's stopwatch is the only edit outside this folder and that Atelier was left alone; that the ten recorded
+logs came from one alternating session; that the two earlier reviews were fresh-context; and your ruling of
+2026-11-19 and your say for the two shown runs, which only this record states.
+
+**Where the re-audit found this file wrong**, each corrected: "the theme's estimate" for a width that was a
+constant; "after 2 tests" for a count that varies by run; "the three tests assert 0" for two tests; "13 commits"
+where the acceptance target read past the end of the table and counted 14; a line saying the spike was covered
+only by older checks; and "lower in 1 pair of 5" where that was the cache-on row alone.
 
 ## 7.1 Frame cost
 
@@ -86,8 +162,9 @@ and your say for the two shown runs.
 `Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code of
 commit `7b2e860`. The commits after it change the pointer-down handler, tests, the sample's `--profile` mode,
 where the sample's restore is written, the sample's `--tour` mode and the name of its exception, the build
-script, the test projects and comments, none of which `--bench` runs. One later change is on the path it runs:
-the log is trimmed after the head moves, where it was trimmed before (two statements in another order). Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
+script, the test projects, the view's starting character width and comments, none of which `--bench` runs. One
+later change is on the path it runs: the log is trimmed after the head moves, where it was trimmed before (two
+statements in another order). The auditor's five pairs on that code are in "Independent audit of the plan". Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
 file. Values are means of a
 run in milliseconds; a cell gives the lowest and highest of the five runs. The last column compares the means of
 the five runs, and counts the pairs in which Plume's run was below the baseline's run made just before it. The

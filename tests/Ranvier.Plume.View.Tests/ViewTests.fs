@@ -142,7 +142,7 @@ let tests =
                     let marker = (mounted.Query "[data-pm~=cursor]")[0]
                     Expect.equal (computed marker "pointer-events") "none" "a layer's rectangle takes no pointer")
 
-            testCase "a view whose character width is not measured yet uses the theme's estimate"
+            testCase "a view whose character width is not measured yet lays out on an estimate from the theme's font size"
             <| fun () ->
                 // The manual scheduler's timers never fire, so the view never measures after it is mounted.
                 let scheduler = new ManualScheduler ()
@@ -150,7 +150,7 @@ let tests =
                 withViewOn (fun _ -> scheduler :> FrameScheduler) [ "hello world"; "second" ] standard 800 (fun mounted ->
                     let view = mounted.View
                     let width = view.CharWidth.Value
-                    Expect.isGreaterThan width 0.0 "a width to lay columns out with"
+                    Expect.floatClose Accuracy.high width (0.55 * EditorView.defaults.Theme.FontSize) "the estimate: 0.55 of the theme's font size"
                     Expect.equal (textOf mounted.Rows[0]) "hello world" "the rows are drawn"
                     let at = mounted.Run (fun () -> view.CoordsAtPos 4)
                     Expect.floatClose Accuracy.medium at.Left (view.GutterWidth.Value + 4.0 * width) "a position is columns of that width"
