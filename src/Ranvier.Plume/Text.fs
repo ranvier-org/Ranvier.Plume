@@ -105,7 +105,14 @@ module internal Rope =
         let mutable pos = 0
         let mutable unpaired = false
         while pos < line.Length && not unpaired do
+#if FABLE_COMPILER
+            let mutable next = pos
+            while next < line.Length && not (Char.IsSurrogate line[next]) do
+                next <- next + 1
+            let offset = if next = line.Length then -1 else next - pos
+#else
             let offset = line.Slice(pos).IndexOfAnyInRange(char 0xD800, char 0xDFFF)
+#endif
             if offset < 0 then pos <- line.Length
             else
                 pos <- pos + offset
