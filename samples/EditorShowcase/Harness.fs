@@ -47,7 +47,9 @@ type Options =
       /// False to open the window with the scroll tour stopped.
       Tour: bool
       /// `--tour` with its window shown on the desktop.
-      Shown: bool }
+      Shown: bool
+      /// `--tour --shown` that also moves the desktop's real pointer inside the window.
+      Pointer: bool }
 
 let usage =
     """Editor showcase on Ranvier.Plume
@@ -65,6 +67,10 @@ let usage =
   dotnet run -c Release -- --tour --shown <picture.png>
                                         the same with the window shown for the length of the run, and what the
                                         screen showed of it saved as a picture
+  dotnet run -c Release -- --tour --shown <picture.png> --pointer
+                                        and the desktop's real pointer moved inside the window: a press, a drag,
+                                        the wheel and the scrollbar through Windows. It sends no keys, clicks only
+                                        where the window is under the pointer, and puts the pointer back
 
 Options
   --size <w>x<h>   window size in CSS pixels (default 1280x800)
@@ -84,6 +90,7 @@ let parse (argv: string[]) : Result<Options, string> =
         | "--apply" :: tail -> go { options with Mode = Apply } tail
         | "--profile" :: tail -> go { options with Mode = Profile } tail
         | "--writes" :: tail -> go { options with Mode = Writes } tail
+        | "--tour" :: "--shown" :: path :: "--pointer" :: tail -> go { options with Mode = Tour path; Shown = true; Pointer = true } tail
         | "--tour" :: "--shown" :: path :: tail -> go { options with Mode = Tour path; Shown = true } tail
         | "--tour" :: tail -> go { options with Mode = Tour "" } tail
         | "--size" :: size :: tail ->
@@ -108,7 +115,7 @@ let parse (argv: string[]) : Result<Options, string> =
             | _ -> Error $"--open takes 0, 1 or 2, not '{index}'"
         | other :: _ -> Error $"unknown argument '{other}'"
 
-    go { Mode = Interactive; Width = WindowW; Height = WindowH; Frames = 240; Lines = 3; File = 0; Tour = true; Shown = false } (List.ofArray argv)
+    go { Mode = Interactive; Width = WindowW; Height = WindowH; Frames = 240; Lines = 3; File = 0; Tour = true; Shown = false; Pointer = false } (List.ofArray argv)
 
 /// A scripted run that found something wrong. The hot reload host evaluates this file's functions in F#
 /// Interactive, where a private exception is out of reach and `Failed` is a case of Ranvier's `Reading`.
@@ -546,6 +553,57 @@ module Desktop =
         push event
 
     [<Struct; StructLayout(LayoutKind.Sequential)>]
+    type ScreenPoint =
+        val mutable X: int
+        val mutable Y: int
+
+    [<DllImport("user32.dll")>]
+    extern bool private GetCursorPos(ScreenPoint& point)
+
+    [<DllImport("user32.dll")>]
+    extern bool private SetCursorPos(int x, int y)
+
+    [<DllImport("user32.dll")>]
+    extern nativeint private WindowFromPoint(ScreenPoint point)
+
+    [<DllImport("user32.dll")>]
+    extern nativeint private GetAncestor(nativeint window, uint32 flags)
+
+    [<DllImport("user32.dll")>]
+    extern void private mouse_event(uint32 flags, uint32 dx, uint32 dy, uint32 data, unativeint extra)
+
+    /// The window's handle on Windows.
+    let private handle () : nativeint =
+        SDL3.SDL_GetPointerProperty(SDL3.SDL_GetWindowProperties(window ()), "SDL.window.win32.hwnd", 0n)
+
+    /// Where the desktop's pointer is, in pixels of the screen.
+    let pointer () : struct (int * int) =
+        let mutable point = ScreenPoint()
+        GetCursorPos &point |> ignore
+        struct (point.X, point.Y)
+
+    /// Puts the desktop's pointer at a point of the screen. Windows reports the move to the window under it.
+    let pointTo (x: int) (y: int) = SetCursorPos(x, y) |> ignore
+
+    /// True when the window under a point of the screen is the app's.
+    let isUnder (x: int) (y: int) : bool =
+        let mutable point = ScreenPoint()
+        point.X <- x
+        point.Y <- y
+        let found = WindowFromPoint point
+        // GA_ROOT: the top-level window of whatever is under the point.
+        found <> 0n && (found = handle () || GetAncestor(found, 2u) = handle ())
+
+    /// The left button of the desktop's mouse, pressed where the pointer is. MOUSEEVENTF_LEFTDOWN.
+    let press () = mouse_event (0x0002u, 0u, 0u, 0u, 0un)
+
+    /// The left button released. MOUSEEVENTF_LEFTUP.
+    let release () = mouse_event (0x0004u, 0u, 0u, 0u, 0un)
+
+    /// The desktop's wheel turned `notches` towards the user. MOUSEEVENTF_WHEEL, 120 a notch, negative towards the user.
+    let turnWheel (notches: int) = mouse_event (0x0800u, 0u, 0u, uint32 (-120 * notches), 0un)
+
+    [<Struct; StructLayout(LayoutKind.Sequential)>]
     type private BitmapHeader =
         val mutable Size: uint32
         val mutable Width: int
@@ -817,6 +875,60 @@ let private tour (options: Options) (picture: string) =
             let lines = graph.Run(fun () -> editor.Text.Value.Lines)
             let share = top () / (float lines * (view ()).Theme.LineHeight)
             holds $"a press a quarter of the way down the scrollbar's track moves the text to {fixed3 (100.0 * share)} percent of the file" (share > 0.20 && share < 0.28)
+
+            if options.Pointer then
+                // The desktop's real pointer, through Windows: into the window, a press, a drag, a release, the wheel
+                // and a press on the scrollbar's track. No key is sent, a click is made only where the window is under
+                // the pointer, and the pointer goes back to where it was.
+                let struct (originX, originY, _, _) = Desktop.bounds ()
+                let onScreen (x: float) (y: float) = struct (originX + int (Math.Round(x * float scale)), originY + int (Math.Round(y * float scale)))
+                let struct (homeX, homeY) = Desktop.pointer ()
+                let mutable down = false
+
+                let go (struct (x, y)) =
+                    Desktop.pointTo x y
+                    turns ()
+
+                    if not (Desktop.isUnder x y) then
+                        raise (RunFailed $"another window covers the sample at ({x}, {y}); the pointer clicked nothing there")
+
+                try
+                    let from = graph.Run(fun () -> (view ()).PosAtCoords 300.0 150.0)
+                    let until = graph.Run(fun () -> (view ()).PosAtCoords 420.0 230.0)
+                    go (onScreen (text.left + 300.0) (text.top + 150.0))
+                    Desktop.press ()
+                    down <- true
+                    turns ()
+                    go (onScreen (text.left + 420.0) (text.top + 230.0))
+                    Desktop.release ()
+                    down <- false
+                    turns ()
+                    let range = graph.Run(fun () -> editor.Selection.Value.Main)
+                    holds $"the real pointer, pressed, dragged and released through Windows, selects from {from} to {until}" (range.Anchor = from && range.Head = until && from <> until)
+
+                    let rolled = top ()
+                    go (onScreen (text.left + 300.0) (text.top + 150.0))
+                    Desktop.turnWheel 3
+                    turns ()
+                    holds "three notches of the real wheel scroll 120 CSS px" (top () = rolled + 120.0)
+
+                    go (onScreen (track.left + track.width / 2.0) (track.top + track.height / 2.0))
+                    Desktop.press ()
+                    down <- true
+                    turns ()
+                    Desktop.release ()
+                    down <- false
+                    turns ()
+                    let half = top () / (float (graph.Run(fun () -> editor.Text.Value.Lines)) * (view ()).Theme.LineHeight)
+                    holds $"a real press half-way down the scrollbar's track moves the text to {fixed3 (100.0 * half)} percent of the file" (half > 0.46 && half < 0.54)
+                finally
+                    if down then
+                        Desktop.release ()
+
+                    Desktop.pointTo homeX homeY
+
+                let struct (backX, backY) = Desktop.pointer ()
+                holds $"the pointer is back where it was, at ({homeX}, {homeY})" (backX = homeX && backY = homeY)
 
             if options.Shown then
                 // What the screen shows where the window is, beside what the window composited.

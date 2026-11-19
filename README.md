@@ -47,6 +47,7 @@ dotnet run -c Release --project samples/EditorShowcase -- --profile    # frame c
 dotnet run -c Release --project samples/EditorShowcase -- --writes     # the page writes of a keystroke and a scroll
 dotnet run -c Release --project samples/EditorShowcase -- --tour       # the app as its window runs it, hidden
 dotnet run -c Release --project samples/EditorShowcase -- --tour --shown out.png   # the same, window shown
+dotnet run -c Release --project samples/EditorShowcase -- --tour --shown out.png --pointer   # and the real pointer moved
 dotnet run -c Release --project samples/EditorShowcase -- --shot out.png
 ```
 

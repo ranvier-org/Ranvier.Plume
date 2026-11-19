@@ -319,21 +319,28 @@ smoke windows are created hidden"; task 8 names a hidden window for its spike an
 `--shot` and has `--bench`, `--memory` and `--load` "run to completion hidden". No step of the plan shows a
 window.
 
-**In a shown window, with your say (2026-11-19).** `samples/EditorShowcase --tour --shown` ran once with the
-sample's window on the desktop, 1280 x 800 pixels at (320, 128), and closed it 5.9 s after the run started
-(**measured here**, one run, 21 checks held, exit code 0):
+**In a shown window, with your say (2026-11-19), twice.** `samples/EditorShowcase --tour --shown` ran with the
+sample's window on the desktop, 1280 x 800 pixels at (320, 128), and closed it when the run ended. The first run
+held 21 checks in 5.9 s. The second, with `--pointer`, also moved the desktop's real pointer through Windows and
+held 25 checks in 6.3 s (**measured here**, one run each, exit code 0; the figures below are the second run's
+unless they say otherwise):
 
-- The tour ran on the frames the app asked for, and then on the window's own loop for 2 s: 167.4 frames a second
-  by the app's count, on a display that reports 164.9 Hz. The same loop with the window hidden ran 107.8 a
-  second, one frame every one and a half refreshes.
-- A click on the tour's button stopped it and the app came to rest; the wheel, a click in the text and a typed
-  key did what they do.
-- A press, a drag and a release put on SDL's queue selected the text between the two points; three notches of
-  the wheel scrolled 120 CSS px; a press a quarter of the way down the scrollbar's track moved the text to 23.9%
-  of the file.
-- A copy of the screen where the window was agrees with what the window composited in 99.996% of its pixels
-  (within 8 of 255 on each channel). The copy is `shown-window.png`, beside this file.
-- F5 started the tour again, and a click on a tab opened its file.
+- **Frames on the display.** Left to the window's own loop for 2 s, the tour ran at 163.9 frames a second by the
+  app's count (167.4 in the first run), on a display that reports 164.9 Hz. The same loop with the window hidden
+  ran 107.8 a second, one frame every one and a half refreshes.
+- **The real pointer, through Windows.** The pointer was put on the text, the left button pressed, the pointer
+  moved, and the button released: the text between the two points was selected. Three notches of the real wheel
+  scrolled 120 CSS px. A real press half-way down the scrollbar's track moved the text to 49.9% of the file. The
+  run checks before each click that the window under the pointer is the sample's, and afterwards the pointer was
+  back where it had been.
+- **SDL's queue.** A press, a drag and a release put on SDL's queue selected the text between the two points;
+  three notches of the wheel scrolled 120 CSS px; a press a quarter of the way down the scrollbar's track moved
+  the text to 23.9% of the file.
+- **The screen.** A copy of the screen where the window was agrees with what the window composited in 99.996% of
+  its pixels (within 8 of 255 on each channel). The copy is `shown-window.png`, beside this file.
+- **The app.** A click on the tour's button stopped it and the app came to rest; a click in the text and a typed
+  key did what they do; F5 started the tour again; a click on a tab opened its file. These went in through the
+  host: no key was sent through Windows, where a key goes to whichever window has the keyboard.
 
 **From the desktop's events inward, the paths a shown window uses ran too**, in windows created hidden:
 
@@ -379,8 +386,8 @@ sample's window on the desktop, 1280 x 800 pixels at (320, 128), and closed it 5
 
 **Outside the plan, and not run:**
 
-- The operating system's own delivery of mouse and key input to SDL. The events were put on SDL's queue; moving
-  your real pointer from a script was not in what you agreed to.
+- Keys sent through Windows. The mouse and the wheel were (above); a key sent that way goes to whichever window
+  has the keyboard, which a script cannot promise is the sample's.
 - A Fable build, packaging and CI: not in phase 1.
 - Atelier was not read beyond `Atelier.Text` and its tests, and was not built or run.
 
@@ -428,4 +435,5 @@ pass.
 each framework.
 
 `samples/EditorShowcase --tour`: 19 of 19 checks, hidden. `--tour --shown <picture>` shows the window for the
-length of the run; it is not part of a gate, and ran once.
+length of the run, and with `--pointer` moves the real pointer inside it. Neither is part of a gate: each ran
+once, with your say.
