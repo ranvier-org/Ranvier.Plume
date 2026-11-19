@@ -20,7 +20,8 @@ type HistoryConfig =
 module History =
 
     /// 10,000 items, a new item after 500 ms, and edits joined when their ranges touch. An item of a
-    /// single-character edit holds about 280 bytes, so a full history of them holds about 2.8 MB.
+    /// single-character edit was measured at 279 bytes (`docs/ACCEPTANCE.md`, 7.2), so a full history of them
+    /// holds about 2.8 MB.
     let defaults: HistoryConfig =
         {
             Depth = 10_000

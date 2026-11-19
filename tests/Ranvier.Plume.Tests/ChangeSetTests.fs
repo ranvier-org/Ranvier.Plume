@@ -50,6 +50,18 @@ let tests =
     testList
         "ChangeSet"
         [
+            testCase "a change holds the text it removes"
+            <| fun () ->
+                let doc = Text.ofString "one\ntwo\nthree"
+                let changes = ChangeSet.ofSpecs doc [ { From = 2; To = 6; Insert = Text.ofString "X" }; { From = 8; To = 8; Insert = Text.ofString "Y" } ]
+                Expect.equal changes.Removed.Length 2 "one removed text for each range"
+                Expect.equal (Text.toString changes.Removed[0]) "e\ntw" "the replaced slice, its line break with it"
+                Expect.equal (Text.toString changes.Removed[1]) "" "an insertion removes nothing"
+                Expect.equal (Text.toString (ChangeSet.apply doc changes)) "onXo\nYthree" "applied"
+                let inverse = ChangeSet.invert changes
+                Expect.equal (Text.toString inverse.Removed[0]) "X" "the inverse removes what was inserted"
+                Expect.equal (Text.toString inverse.Inserted[0]) "e\ntw" "and inserts what was removed"
+
             testCase "apply agrees with String"
             <| fun () ->
                 forSeeds 3000 (fun rng ->

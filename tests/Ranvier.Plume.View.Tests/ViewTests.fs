@@ -111,6 +111,26 @@ let tests =
                     Expect.equal (view.RowsWritten () - before) 3L "three rows, computed once"
                     Expect.equal view.ScrollTop.Value 20060.0 "scrolled by the sum")
 
+            testCase "a view whose character width is not measured yet uses the theme's estimate"
+            <| fun () ->
+                // The manual scheduler's timers never fire, so the view never measures after it is mounted.
+                let scheduler = new ManualScheduler ()
+
+                withViewOn (fun _ -> scheduler :> FrameScheduler) [ "hello world"; "second" ] standard 800 (fun mounted ->
+                    let view = mounted.View
+                    let width = view.CharWidth.Value
+                    Expect.isGreaterThan width 0.0 "a width to lay columns out with"
+                    Expect.equal (textOf mounted.Rows[0]) "hello world" "the rows are drawn"
+                    let at = mounted.Run (fun () -> view.CoordsAtPos 4)
+                    Expect.floatClose Accuracy.medium at.Left (view.GutterWidth.Value + 4.0 * width) "a position is columns of that width"
+                    Expect.equal (mounted.Run (fun () -> view.PosAtCoords (at.Left + 0.5) 5.0)) 4 "and a point finds its position back"
+                    Expect.equal (mounted.Run (fun () -> view.PosAtCoords 5000.0 25.0)) (Text.line 1 mounted.Editor.Text.Value).To "a point past a line is its end"
+                    mounted.Run (fun () -> mounted.Editor.Dispatch [ Tx.selection (EditorSelection.single 4 4) ])
+                    mounted.Step ()
+                    let cursors = shown mounted "[data-pm~=cursor]"
+                    Expect.equal cursors.Length 1 "the cursor is drawn"
+                    Expect.isLessThan (abs (cursors[0].left - at.Left)) 0.05 "where the position is")
+
             testCase "a scroll request reaches the rows through the frame callback"
             <| fun () ->
                 let scheduler = new ManualScheduler ()

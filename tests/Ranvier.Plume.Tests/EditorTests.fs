@@ -126,6 +126,21 @@ let documentTests =
                     Expect.equal (textOf first) "one" "the first file's part is undone"
                     Expect.equal (textOf second) "btwo" "the second file is left alone")
 
+            testCase "a transaction posted against an older head lands mapped when the graph pumps"
+            <| fun () ->
+                withGraph (fun graph ->
+                    let document = Document.create (Text.ofString "0123456789")
+                    let reader = document.Reader ()
+                    document.Dispatch [ insert 0 "ab" ]
+                    // Written against the document before the insertion, and posted from another thread.
+                    let thread = Thread (fun () -> document.PostAt (0L, [ Tx.changes [ { From = 1; To = 2; Insert = Text.empty } ]; Tx.isolateHistory ]))
+                    thread.Start ()
+                    thread.Join ()
+                    Expect.equal (textOf document) "ab0123456789" "not yet"
+                    graph.Pump () |> ignore
+                    Expect.equal (textOf document) "ab023456789" "the character it named is deleted in the current text"
+                    Expect.equal (reader.Read ()).Length 2 "the reader has both transactions")
+
             testCase "Post from another thread lands when the graph pumps"
             <| fun () ->
                 withGraph (fun graph ->
@@ -145,7 +160,7 @@ let documentTests =
                     for index in 0..9 do
                         document.Dispatch [ insert index "x" ]
 
-                    Expect.equal document.LogLength 1 "without a reader the log holds the last transaction"
+                    Expect.equal document.LogLength 0 "without a reader the log holds nothing"
 
                     let owner =
                         Api.createRoot (fun owner ->
@@ -165,7 +180,7 @@ let documentTests =
 
                     owner.Dispose ()
                     document.Dispatch [ insert 0 "z" ]
-                    Expect.equal document.LogLength 1 "a disposed reader keeps nothing")
+                    Expect.equal document.LogLength 0 "a disposed reader keeps nothing")
         ]
 
 /// A document over a text of its own, with an editor and an update reader, and a weak reference to that text.
@@ -467,6 +482,25 @@ let editorTests =
                     Expect.equal (Text.toString document.Text.Value) "xabc" "an edit without a user event applies"
                     Expect.isFalse (Editor.undo editor) "undo is a user edit")
 
+            testCase "another editor's deletion leaves no selection beyond the document"
+            <| fun () ->
+                withGraph (fun _ ->
+                    let document = Document.create (Text.ofString "0123456789")
+                    let first = Editor.create document []
+                    let second = Editor.create document [ EditorState.allowMultipleSelections.Of true ]
+                    // One range at the end and one across what the other editor is about to delete.
+                    second.Dispatch [ Tx.selection (EditorSelection.create [ EditorSelection.range 10 10; EditorSelection.range 4 9 ] 0) ]
+                    first.Dispatch [ Tx.change { From = 6; To = 10; Insert = Text.empty } ]
+                    Expect.equal (Text.toString second.Text.Value) "012345" "the tail is gone in both"
+
+                    for range in second.Selection.Value.Ranges do
+                        Expect.isLessThanOrEqual range.To 6 "a range ends inside the document"
+                        Expect.isGreaterThanOrEqual range.From 0 "and starts inside it"
+
+                    Expect.equal second.Selection.Value.Main.Head 6 "the cursor at the end is at the new end"
+                    second.Dispatch [ Tx.change { From = 6; To = 6; Insert = Text.ofString "!" } ]
+                    Expect.equal (Text.toString first.Text.Value) "012345!" "and an edit there lands")
+
             testCase "an invalid change raises and leaves the log alone"
             <| fun () ->
                 withGraph (fun _ ->
@@ -495,5 +529,5 @@ let editorTests =
 
                     owner.Dispose ()
                     document.Dispatch [ insert 0 "y" ]
-                    Expect.equal document.LogLength 1 "released")
+                    Expect.equal document.LogLength 0 "released")
         ]

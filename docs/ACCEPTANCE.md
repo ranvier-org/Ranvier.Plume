@@ -19,23 +19,23 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 
 The plan (`superpowers/plans/2026-11-18-plume-phase-1.md`) has 11 tasks and 41 steps. Every step is ticked, and
 each task's evidence below is on the tree as committed: the test counts are the lists of the two test projects,
-which the gate runs.
+which the gate runs. This table is mine; the section after it is an independent audit of the same 41 steps.
 
 | Task | Steps | Commits | Evidence |
 |---|---|---|---|
-| 1 Repository scaffold and `Text` | 5 of 5 | `20c43cd` | 17 `Text` tests |
-| 2 `ChangeSet` | 4 of 4 | `673af03` | 9 `ChangeSet` tests |
+| 1 Repository scaffold and `Text` | 5 of 5 | `20c43cd` | 17 `Text` tests and 5 properties run by FsCheck |
+| 2 `ChangeSet` | 4 of 4 | `673af03` | 10 `ChangeSet` tests |
 | 3 `EditorSelection` and `RangeSet` | 3 of 3 | `1c14134` | 5 `EditorSelection` and 6 `RangeSet` tests |
 | 4 Transactions and `EditorState` | 3 of 3 | `484dffb` | 19 `EditorState` tests |
-| 5 History and `Document` | 4 of 4 | `baff5e2`, `0f2937f` | 16 `History`, 8 `Document` and 1 `Retention` test |
-| 6 `Editor` | 3 of 3 | `baff5e2` | 13 `Editor` tests |
+| 5 History and `Document` | 4 of 4 | `baff5e2`, `0f2937f` | 16 `History`, 9 `Document` and 1 `Retention` test |
+| 6 `Editor` | 3 of 3 | `baff5e2` | 14 `Editor` tests |
 | 7 Commands, keymaps, language | 3 of 3 | `71e619d` | 12 `Commands`, 4 `Keymap` and 2 `Language` tests |
-| 8 `Ranvier.Plume.View` | 4 of 4 | `334bc51`, `7b2e860` | 32 view tests in hidden windows; each case of the step 2 smoke test has a test |
+| 8 `Ranvier.Plume.View` | 4 of 4 | `334bc51`, `7b2e860` | 33 view tests in hidden windows; each case of the step 2 smoke test has a test |
 | 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture `sample-shot.png` (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
 | 10 SIMD checks | 3 of 3 | `26dea99` | 7.3 below: the vectorised scan is faster and is kept; `--apply` is measured. Step 3 named a commit of its own; keeping the scan changed no code, so the decision is recorded with the acceptance commit |
 | 11 Acceptance | 5 of 5 | `26dea99`, `dd00fc9`, `7b2e860`, `8360aad` | 7.1: all nine rows pass. 7.2: 279 bytes. Step 3: the profile and the fix, in 7.1. Step 4: this file, the dossier's status line and decision 17. Step 5: the gate, `rfs check`, and two fresh-context reviews with their findings fixed |
 
-The state tests sum to 112 and run on `net10.0`, on `net8.0`, and on the traced core on both.
+The state tests sum to 120 and run on `net10.0`, on `net8.0`, and on the traced core on both.
 
 `dotnet fsi --exec build.fsx -- acceptance` recomputes the verdicts of section 7 without this file's prose: 7.1
 from the ten recorded runs in `bench/` by the rule of dossier 7.1, 7.2 and 7.3 from runs it makes, the plan's
@@ -43,13 +43,51 @@ boxes, and the commits this table names. It exits 1 when one of them does not ho
 
 What ran beyond the plan's steps is under "What the plan's checks ran in, and what is outside them".
 
+## Independent audit of the plan
+
+An auditor with no part in the work checked each of the plan's 41 steps against the repository at commit
+`47017bb`, in a checkout of its own: it read the code and the tests, ran every gate, re-ran the sample's modes, and
+recomputed 7.1 both from the recorded logs and from five pairs of its own. The figures in this section are the
+auditor's.
+
+**Its verdict: the plan is complete except for a named list.** No step is "not done". 24 are done as written, 14
+are done differently, and 3 left nothing it could check. By the rule of 7.1 all nine rows pass on the recorded
+logs and on its own five pairs. In its own pairs typing was level with the baseline (1.452 against 1.448 ms, and
+1.391 against the baseline's range of 1.312 to 1.650 ms with the cache off) and lower in 1 pair of 5, where the
+recorded session has it lower in 5 of 5: "level" is the claim that holds across sessions. Its 7.2 is 279.2 bytes
+and its 7.3 is 26.9 ms against 50.4 ms.
+
+What it listed, and what was done:
+
+| The audit found | Done about it |
+|---|---|
+| No test of a view whose character width is not measured yet (plan, Review Focus 6) | Added: the view lays out, finds positions and draws the cursor on the theme's estimate |
+| Expecto.FsCheck, named in the plan's stack, was never used; every property was a seeded loop | Five properties run by Expecto.FsCheck are added, over every kind of line break and characters outside ASCII. With one expectation broken on purpose, FsCheck reports it after 2 tests |
+| The random replacements used ASCII alphabets (Review Focus 1) | The same five properties |
+| `PostAt` had no test (the plan's test of an older head names it) | Added: posted from another thread, mapped when the graph pumps |
+| No test where another editor's edit leaves a selection beyond the document (Review Focus 4) | Added |
+| "The removed text is the replaced slice" was a helper inside four tests | Added as a test of its own |
+| The dispose test asserted a log of 1 transaction where the plan says 0 | The log is trimmed after the head moves: with no reader it is empty, and the three tests assert 0 |
+| Differences from the plan's signatures that the dossier did not list: the theme, the view's configuration, the row window, the key notation, the unused `TokenCache`, undo of deleted text, the files | Listed in the dossier, section 11 |
+| The dossier said 71 ms for many-range apply; this file says 49.4 | The dossier's figure was from before the leaf-merge fix; corrected |
+| Figures without a label in a doc comment and in three commit messages | The doc comment names its source. Commit messages are history and stay |
+| The plan was ticked closed in `26dea99` while its own record said 7.1 needed a ruling | True. It held from `7b2e860`; the table above gives the commits of each task |
+| No commit of their own for steps 1.1, 6.3 and 10.3 | True: 1.1 is in `20c43cd` with 1.5, 6.3 in `baff5e2` with 5.4, and 10.3 changed no code |
+| Nothing to check for the failing first runs of steps 1.3 and 2.2, or for the spike of 8.1 | True: no artefact of them was kept. What the spike asked is covered by kept checks: the sample refuses to run when a class has no rule, and a test shows one frame callback for several requests |
+| By the rule of 7.1 as first written (App and Turn each), one scroll row fails on Turn | That is what the ruling of 2026-11-19 settled (decision 18): the two apps put the page's layout in different stopwatches |
+
+It could not check from the repository: that the baseline's stopwatch is the only edit outside this folder, that
+Atelier was left alone, that the ten logs came from one alternating session, that the reviews were fresh-context,
+and your say for the two shown runs.
+
 ## 7.1 Frame cost
 
 `EditorShowcase --bench` (the baseline, with the Dispatch stopwatch added) and
 `Ranvier.Plume/samples/EditorShowcase --bench`, alternating, five runs each, in one session, on the code of
 commit `7b2e860`. The commits after it change the pointer-down handler, tests, the sample's `--profile` mode,
 where the sample's restore is written, the sample's `--tour` mode and the name of its exception, the build
-script, the test projects and comments, none of which `--bench` runs. Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
+script, the test projects and comments, none of which `--bench` runs. One later change is on the path it runs:
+the log is trimmed after the head moves, where it was trimmed before (two statements in another order). Each row is 240 timed frames after 30 untimed ones on the 1,000,000-line
 file. Values are means of a
 run in milliseconds; a cell gives the lowest and highest of the five runs. The last column compares the means of
 the five runs, and counts the pairs in which Plume's run was below the baseline's run made just before it. The
@@ -379,10 +417,10 @@ unless they say otherwise):
   page as a patch in 1.1 s with the tour still stopped; an edit that does not compile was reported as an error
   and left the page as it was; the revert was patched in; an edit to `Harness.fs` was evaluated (**measured
   here**, the host's own report of one run; the first frame came 1.4 s after the host started).
-- **Both frameworks.** The state package's 112 tests run on `net10.0` and on `net8.0`. The view's tests run on
+- **Both frameworks.** The state package's 120 tests run on `net10.0` and on `net8.0`. The view's tests run on
   `net10.0`, the only target of the native host package.
 - **The traced build.** `dotnet fsi --exec build.fsx -- traced` builds both libraries with `-p:RanvierTrace=true`
-  on both frameworks, with 0 warnings, and runs the state tests on them: 112 pass on each. It works in a copy of
+  on both frameworks, with 0 warnings, and runs the state tests on them: 120 pass on each. It works in a copy of
   the tree, because a traced restore in place would replace what the untraced build and `rfs` read. One test
   reads differently there: a traced graph's event log holds the payload of each event (**from source**,
   `Ranvier/src/Ranvier/Trace.fs`), so the text a document started with is never collected, and the retention
@@ -426,7 +464,7 @@ Two tests failed once each in single gate runs, and passed when run again; a thi
 ## Gate
 
 `dotnet fsi --exec build.fsx -- ci`: builds the solution in Release, then runs every test project unfiltered.
-The state package has 112 tests, run on `net10.0` and on `net8.0`, and the view has 32.
+The state package has 120 tests, run on `net10.0` and on `net8.0`, and the view has 33.
 
 `dotnet fsi --exec build.fsx -- check`: builds the solution in Debug, which `rfs` reads, then runs
 `rfs check --fail-on-error`: 0 errors in 5 projects. Run straight after the Release gate, `rfs check` also
@@ -439,7 +477,7 @@ commits the table names are in the repository.
 `dotnet fsi --exec build.fsx -- dev`: the sample under the hot reload host, window off screen: 14 of 14 steps
 pass.
 
-`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 112 state tests on
+`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 120 state tests on
 each framework.
 
 `samples/EditorShowcase --tour`: 19 of 19 checks, hidden. `--tour --shown <picture>` shows the window for the

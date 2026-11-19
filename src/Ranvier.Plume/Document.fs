@@ -31,7 +31,7 @@ type LogReader internal (memo: Memo<struct (Transaction[] * int64)>) =
 [<Sealed>]
 type Document internal (config: DocumentConfig) =
     let graph = Graph.Current
-    // The clock alone is kept of the configuration: kept whole, it would hold the text the document started with.
+    // The clock alone is kept: the configuration holds the text the document started with.
     let clock = config.Clock
     let head = Api.createSignal 0L
     let savedVersion = Api.createSignal 0
@@ -185,8 +185,9 @@ type Document internal (config: DocumentConfig) =
         current <- nextText
         history <- nextHistory
         log.Add transaction
-        trim ()
         head.Value <- transaction.Seq
+        // After the head has moved: a transaction no reader is behind leaves the log at once.
+        trim ()
         transaction
 
     /// Appends the transaction <c>specs</c> describe, from a source outside every editor, written against the
