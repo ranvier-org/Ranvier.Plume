@@ -3,6 +3,8 @@
 //   test    runs every test project on each of its target frameworks, unfiltered
 //   ci      build, then test
 //   check   builds the solution in Debug, then runs rfs check on it (rfs is the Ranvier.FSharp.Agent global tool)
+//   traced  builds both libraries on the traced core (-p:RanvierTrace=true) and runs the state tests on them, in a
+//           copy of the tree: a traced restore in place would replace what the untraced build and rfs read
 //   dev     runs the sample under the hot reload host with its window off screen, on a copy of its sources:
 //           the steps of samples/EditorShowcase/hot-reload.json edit the copy and read the page after each edit
 open System
@@ -12,14 +14,16 @@ open System.Text.Json
 
 let root = __SOURCE_DIRECTORY__
 
-let run (file: string) (arguments: string) =
-    let info = ProcessStartInfo (file, arguments, WorkingDirectory = root, UseShellExecute = false)
+let runIn (directory: string) (file: string) (arguments: string) =
+    let info = ProcessStartInfo (file, arguments, WorkingDirectory = directory, UseShellExecute = false)
     use started = Process.Start info
     started.WaitForExit ()
 
     if started.ExitCode <> 0 then
         eprintfn "'%s %s' exited with code %d" file arguments started.ExitCode
         exit started.ExitCode
+
+let run (file: string) (arguments: string) = runIn root file arguments
 
 let build () =
     run "dotnet" "build Ranvier.Plume.slnx -c Release --nologo"
@@ -45,6 +49,37 @@ let test () =
         for framework in frameworksOf project do
             printfn "%s on %s" (Path.GetFileNameWithoutExtension project) framework
             run "dotnet" (String.Concat ("run -c Release --no-build --framework ", framework, " --project \"", project, "\" -- --summary"))
+
+/// Copies a tree without its build outputs and its repository data.
+let rec copyTree (source: string) (target: string) =
+    Directory.CreateDirectory target |> ignore
+
+    for file in Directory.GetFiles source do
+        File.Copy (file, Path.Combine (target, Path.GetFileName file))
+
+    for directory in Directory.GetDirectories source do
+        match Path.GetFileName directory with
+        | "bin"
+        | "obj"
+        | ".git"
+        | ".idea"
+        | "bench" -> ()
+        | name -> copyTree directory (Path.Combine (target, name))
+
+let traced () =
+    let work = Path.Combine (Path.GetTempPath (), "ranvier-plume-traced-" + Guid.NewGuid().ToString "N")
+    copyTree root work
+
+    try
+        let tests = Path.Combine (work, "tests", "Ranvier.Plume.Tests", "Ranvier.Plume.Tests.fsproj")
+        runIn work "dotnet" "build src/Ranvier.Plume.View/Ranvier.Plume.View.fsproj -c Release -p:RanvierTrace=true --nologo"
+        runIn work "dotnet" (String.Concat ("build \"", tests, "\" -c Release -p:RanvierTrace=true --nologo"))
+
+        for framework in frameworksOf tests do
+            printfn "Ranvier.Plume.Tests on %s, traced" framework
+            runIn work "dotnet" (String.Concat ("run -c Release --no-build -p:RanvierTrace=true --framework ", framework, " --project \"", tests, "\" -- --summary"))
+    finally
+        Directory.Delete (work, true)
 
 // rfs reads the Debug configuration: the outputs of the projects a project references, and the Debug restore.
 let check () =
@@ -103,10 +138,11 @@ match fsi.CommandLineArgs |> Array.skip 1 |> Array.filter (fun a -> a <> "--") |
 | Some "test" -> test ()
 | Some "check" -> check ()
 | Some "dev" -> dev ()
+| Some "traced" -> traced ()
 | Some "ci"
 | None ->
     build ()
     test ()
 | Some other ->
-    eprintfn "unknown target '%s' (build, test, ci, check, dev)" other
+    eprintfn "unknown target '%s' (build, test, ci, check, dev, traced)" other
     exit 2

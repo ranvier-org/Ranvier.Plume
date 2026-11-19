@@ -184,6 +184,15 @@ let private collect () =
     GC.WaitForPendingFinalizers ()
     GC.Collect ()
 
+/// True when the library was built on the traced core (`-p:RanvierTrace=true`). A traced graph's event log holds
+/// the payload of each event it records, so a text the graph has seen lives as long as the graph.
+let private traced =
+    typeof<Document>.Assembly.GetCustomAttributes (typeof<System.Reflection.AssemblyMetadataAttribute>, false)
+    |> Array.exists (fun attribute ->
+        match attribute with
+        | :? System.Reflection.AssemblyMetadataAttribute as metadata -> metadata.Key = "RanvierTrace" && metadata.Value = "true"
+        | _ -> false)
+
 [<Tests>]
 let retentionTests =
     testList
@@ -207,7 +216,12 @@ let retentionTests =
                     editor.Dispatch [ insert 0 "y"; Tx.isolateHistory ]
                     updates.Read () |> ignore
                     collect ()
-                    Expect.isFalse original.IsAlive "once another text is saved, nothing holds the text at the start"
+
+                    if traced then
+                        Expect.isTrue original.IsAlive "the traced graph's event log holds the text at the start"
+                    else
+                        Expect.isFalse original.IsAlive "once another text is saved, nothing holds the text at the start"
+
                     Expect.equal document.UndoDepth.Value 43 "the history still undoes every edit"
                     Expect.isTrue (Editor.undo editor) "undo"
                     GC.KeepAlive updates)

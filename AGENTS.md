@@ -38,3 +38,6 @@ reads the Debug configuration, so it needs that build once; a Release build afte
 
 `dotnet fsi --exec build.fsx -- dev` runs the sample under the hot reload host with its window off screen, on a
 copy of its sources, through the steps of `samples/EditorShowcase/hot-reload.json`.
+
+`dotnet fsi --exec build.fsx -- traced` builds both libraries with `-p:RanvierTrace=true` and runs the state tests
+on them, in a copy of the tree.

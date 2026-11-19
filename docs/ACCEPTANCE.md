@@ -15,6 +15,30 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 | 7.2 History memory | **Passes**: 279 bytes an insertion after `MarkSaved`, bound 512 |
 | 7.3 Loading | **Passes**: the vectorised scan is 1.85 times faster and is kept |
 
+## The plan, task by task
+
+The plan (`superpowers/plans/2026-11-18-plume-phase-1.md`) has 11 tasks and 41 steps. Every step is ticked, and
+each task's evidence below is on the tree as committed: the test counts are the lists of the two test projects,
+which the gate runs.
+
+| Task | Steps | Commits | Evidence |
+|---|---|---|---|
+| 1 Repository scaffold and `Text` | 5 of 5 | `20c43cd` | 17 `Text` tests |
+| 2 `ChangeSet` | 4 of 4 | `673af03` | 9 `ChangeSet` tests |
+| 3 `EditorSelection` and `RangeSet` | 3 of 3 | `1c14134` | 5 `EditorSelection` and 6 `RangeSet` tests |
+| 4 Transactions and `EditorState` | 3 of 3 | `484dffb` | 19 `EditorState` tests |
+| 5 History and `Document` | 4 of 4 | `baff5e2`, `0f2937f` | 16 `History`, 8 `Document` and 1 `Retention` test |
+| 6 `Editor` | 3 of 3 | `baff5e2` | 13 `Editor` tests |
+| 7 Commands, keymaps, language | 3 of 3 | `71e619d` | 12 `Commands`, 4 `Keymap` and 2 `Language` tests |
+| 8 `Ranvier.Plume.View` | 4 of 4 | `334bc51`, `7b2e860` | 32 view tests in hidden windows; each case of the step 2 smoke test has a test |
+| 9 The sample and the baseline stopwatch | 4 of 4 | `f4beb7f` | `--shot` gives the picture `sample-shot.png` (read); `--bench`, `--memory` and `--load` run to completion hidden; the baseline prints the Dispatch columns (`bench/baseline-*.txt`) |
+| 10 SIMD checks | 3 of 3 | `26dea99` | 7.3 below: the vectorised scan is faster and is kept; `--apply` is measured. Step 3 named a commit of its own; keeping the scan changed no code, so the decision is recorded with the acceptance commit |
+| 11 Acceptance | 5 of 5 | `26dea99`, `dd00fc9`, `7b2e860`, `8360aad` | 7.1: all nine rows pass. 7.2: 279 bytes. Step 3: the profile and the fix, in 7.1. Step 4: this file, the dossier's status line and decision 17. Step 5: the gate, `rfs check`, and two fresh-context reviews with their findings fixed |
+
+The state tests sum to 112 and run on `net10.0`, on `net8.0`, and on the traced core on both.
+
+What ran beyond the plan's steps is under "What the plan's checks ran in, and what is outside them".
+
 ## 7.1 Frame cost
 
 `EditorShowcase --bench` (the baseline, with the Dispatch stopwatch added) and
@@ -346,15 +370,26 @@ sample's window on the desktop, 1280 x 800 pixels at (320, 128), and closed it 5
   here**, the host's own report of one run; the first frame came 1.4 s after the host started).
 - **Both frameworks.** The state package's 112 tests run on `net10.0` and on `net8.0`. The view's tests run on
   `net10.0`, the only target of the native host package.
+- **The traced build.** `dotnet fsi --exec build.fsx -- traced` builds both libraries with `-p:RanvierTrace=true`
+  on both frameworks, with 0 warnings, and runs the state tests on them: 112 pass on each. It works in a copy of
+  the tree, because a traced restore in place would replace what the untraced build and `rfs` read. One test
+  reads differently there: a traced graph's event log holds the payload of each event (**from source**,
+  `Ranvier/src/Ranvier/Trace.fs`), so the text a document started with is never collected, and the retention
+  test asserts that on a traced build in place of the opposite.
 
 **Outside the plan, and not run:**
 
 - The operating system's own delivery of mouse and key input to SDL. The events were put on SDL's queue; moving
   your real pointer from a script was not in what you agreed to.
-- A traced build (`-p:RanvierTrace=true`): the plan asks only that tracing is off by default, which it is. Three
-  of the traced packages it needs are not in this machine's package cache.
 - A Fable build, packaging and CI: not in phase 1.
 - Atelier was not read beyond `Atelier.Text` and its tests, and was not built or run.
+
+## Two statements of mine that were wrong
+
+- I wrote that a hidden window's loop delivers no animation frames. It does (see "Found in the packages").
+- I wrote that a traced build needed three packages this machine does not have. It needs `Ranvier.Traced`,
+  `Ranvier.View.Traced` and `Ranvier.View.Dom.Traced`, which are all here; I had not read the project files
+  before saying so. The traced build is built and tested (above).
 
 ## Found by running the gate repeatedly
 
@@ -388,6 +423,9 @@ reports 0 errors.
 
 `dotnet fsi --exec build.fsx -- dev`: the sample under the hot reload host, window off screen: 14 of 14 steps
 pass.
+
+`dotnet fsi --exec build.fsx -- traced`: both libraries on the traced core, 0 warnings, and 112 state tests on
+each framework.
 
 `samples/EditorShowcase --tour`: 19 of 19 checks, hidden. `--tour --shown <picture>` shows the window for the
 length of the run; it is not part of a gate, and ran once.
