@@ -16,6 +16,11 @@ Expecto.FsCheck 11.0.0-alpha8-fscheck2.
 
 **Spec:** `docs/DOSSIER.md` (approved 2026-11-18). Section numbers below refer to it.
 
+**As carried out (added 2026-11-19):** in tasks 1 to 8 each implementation file was written before its tests, the
+reverse of the order of the steps below. The "run; it fails" steps of tasks 1 and 2 and the spike of task 8 were
+therefore not made when the plan says. Each is marked "made late" where it stands, and `docs/ACCEPTANCE.md`, "The
+order the work was done in", has the record.
+
 ## Core and view state
 
 Required by `Ranvier/.claude/rules/view-uses-core.md`.
@@ -182,7 +187,9 @@ offset array.
   - Property `replace agrees with String`: for random text and random `(from, to, insert)`,
     `toString (replace from to (ofString insert) t) = s.Remove(from, to - from).Insert(from, insert)`.
   - Property `vectorised scan equals scalar scan`: `contentEquals (ofUtf8 b) (ofUtf8Scalar b)` and equal `lines`.
-- [x] **Step 3:** Run `dotnet test tests/Ranvier.Plume.Tests`; it fails to compile (no `Text`).
+- [x] **Step 3 (made late):** Run `dotnet test tests/Ranvier.Plume.Tests`; it fails to compile (no `Text`).
+  Not run at the time: `Text.fs` was written before `TextTests.fs`, and the first build of the tests succeeded.
+  `dotnet fsi --exec build.fsx -- red` makes the run in a copy of commit `20c43cd` without `Text.fs`.
 - [x] **Step 4:** Implement `LineScan.fs` (scalar `\n`/`\r` scan; `Vector256`/`Vector128` scan behind
   `#if !FABLE_COMPILER` with the scalar tail) and `Text.fs` from the extracted rope.
 - [x] **Step 5:** Tests pass. Commit `feat: Text rope with offset addressing`.
@@ -249,7 +256,10 @@ mapped set's removed text is the part the other set left in place.
     positions 0 and `length` map for an insertion at 0 and at `length`.
   - `ofSpecs rejects overlap`: `[ {From=0;To=3}; {From=2;To=4} ]` raises `ArgumentException`; `To > length` raises.
   - `line edits round-trip`: `toLineEdits d (ofLineEdits d edits)` applied through `ofLineEdits` gives the same text.
-- [x] **Step 2:** Run; compile failure.
+- [x] **Step 2 (made late):** Run; compile failure.
+  Not run at the time: `ChangeSet.fs` was written before `ChangeSetTests.fs`, and the first build of the tests
+  succeeded. `dotnet fsi --exec build.fsx -- red` makes the run in a copy of commit `673af03` without
+  `ChangeSet.fs`.
 - [x] **Step 3:** Implement. Sections merge as CodeMirror's `addSection` does (adjacent unchanged sections join; a
   replacement following a replacement joins). `apply` walks sections once and calls `Text.replace` back to front or
   builds by `slice`/`append`, whichever the many-range benchmark of Task 10 favours.
@@ -700,10 +710,13 @@ Design fixed here:
 - **Constants** kept from the baseline: line height 20 (theme), overscan 6, rebase 700 lines, lead 16,000 px,
   sheet 36,000 px, thumb minimum 28 px.
 
-- [x] **Step 1:** Spike in a scratch test: a component from this package applying a recorded utility, mounted in a
-  hidden window whose sheet received the exposed definitions, has the utility's computed style. A
+- [x] **Step 1 (made late):** Spike in a scratch test: a component from this package applying a recorded utility,
+  mounted in a hidden window whose sheet received the exposed definitions, has the utility's computed style. A
   `Frames.frame` callback scheduled from an effect runs once for three writes to a signal. If either fails, stop
   and report.
+  No spike was made before the view was written. Its two questions are tests of the view, written afterwards:
+  "the classes the view hands over style its elements through the sheet a host adopts" and "a scroll request
+  reaches the rows through the frame callback". Both pass.
 - [x] **Step 2:** Smoke test (`tests/Ranvier.Plume.View.Tests`, hidden window, 1280 x 800):
   - mounts a 1,000,000-line document; after two steps the row pool has `ceil(h / 20) + 13` elements and the first
     row's text is line 1's.

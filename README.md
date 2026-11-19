@@ -36,6 +36,8 @@ tests open hidden windows).
 edits to a copy of its sources reach the page.
 `dotnet fsi --exec build.fsx -- traced` builds both libraries on the traced core and runs the state tests on them.
 `dotnet fsi --exec build.fsx -- acceptance` recomputes the acceptance verdicts of the dossier's section 7.
+`dotnet fsi --exec build.fsx -- red` shows the tests of plan tasks 1 and 2 failing to compile without their
+implementation.
 
 The sample in `samples/EditorShowcase` is the workspace's `EditorShowcase` rebuilt on the library:
 

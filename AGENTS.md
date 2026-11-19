@@ -44,3 +44,12 @@ on them, in a copy of the tree.
 
 `dotnet fsi --exec build.fsx -- acceptance` recomputes the verdicts of the dossier's section 7 from the recorded
 benchmark runs in `docs/bench` and from memory and loading runs it makes.
+
+`dotnet fsi --exec build.fsx -- red` shows the tests of plan tasks 1 and 2 failing to compile without their
+implementation, each in a copy of its task's commit.
+
+## Order of work
+
+Write a task's tests before its code, and run them to see them fail. Tick a plan step that says "run; it fails"
+when that run was made, with its output. Phase 1 wrote the code first in every task (`docs/ACCEPTANCE.md`, "The
+order the work was done in").

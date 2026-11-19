@@ -9,6 +9,8 @@
 //           7.3 from runs made now, and checks the plan's boxes and the commits the acceptance record names
 //   dev     runs the sample under the hot reload host with its window off screen, on a copy of its sources:
 //           the steps of samples/EditorShowcase/hot-reload.json edit the copy and read the page after each edit
+//   red     the plan's two "run; it fails to compile" steps, made after the fact: the tests of tasks 1 and 2, each at
+//           its task's commit, in a copy of that commit with the task's implementation file taken out
 open System
 open System.Diagnostics
 open System.Globalization
@@ -162,8 +164,9 @@ let acceptance () =
     let plan = File.ReadAllText (Path.Combine (docs, "superpowers", "plans", "2026-11-18-plume-phase-1.md"))
     let ticked = Regex.Matches(plan, @"(?m)^- \[x\] \*\*Step").Count
     let unticked = Regex.Matches(plan, @"(?m)^- \[ \] ").Count
+    let late = Regex.Matches(plan, @"(?m)^- \[x\] \*\*Step \d+ \(made late\)").Count
     printfn "The plan and the record:"
-    verdict (unticked = 0 && ticked = 41) (sprintf "%d steps ticked and %d not, of the plan's 41" ticked unticked)
+    verdict (unticked = 0 && ticked = 41) (sprintf "%d steps ticked and %d not, of the plan's 41; %d of the ticked are marked as made late" ticked unticked late)
     let record = File.ReadAllText (Path.Combine (docs, "ACCEPTANCE.md"))
     let from = record.IndexOf "## The plan, task by task"
     // The table ends where the next section starts.
@@ -184,6 +187,74 @@ let acceptance () =
         exit 1
 
     printfn "every acceptance check passed"
+
+/// What a command run in a folder prints, and its exit code.
+let captureIn (directory: string) (file: string) (arguments: string) : struct (string * int) =
+    let info = ProcessStartInfo (file, arguments, WorkingDirectory = directory, UseShellExecute = false, RedirectStandardOutput = true)
+    use started = Process.Start info
+    let output = started.StandardOutput.ReadToEnd ()
+    started.WaitForExit ()
+    struct (output, started.ExitCode)
+
+// Steps 1.3 and 2.2 of the plan ask for a run of the tests before their implementation exists. The work was not
+// done in that order (docs/ACCEPTANCE.md, "The order the work was done in"), so the run is made here: a task's
+// commit builds as it is, and its tests stop compiling once the task's implementation file is taken out.
+let red () =
+    let cases =
+        [
+            "1.3", "20c43cd", "Text.fs", "TextTests.fs"
+            "2.2", "673af03", "ChangeSet.fs", "ChangeSetTests.fs"
+        ]
+
+    let mutable failed = 0
+
+    for step, commit, implementation, tests in cases do
+        let work = Path.Combine (Path.GetTempPath (), "ranvier-plume-red-" + Guid.NewGuid().ToString "N")
+        Directory.CreateDirectory work |> ignore
+
+        try
+            let archive = Path.Combine (work, "tree.zip")
+            run "git" (String.Concat ("archive --format=zip -o \"", archive, "\" ", commit))
+            let tree = Path.Combine (work, "tree")
+            Compression.ZipFile.ExtractToDirectory (archive, tree)
+            let project = "tests/Ranvier.Plume.Tests/Ranvier.Plume.Tests.fsproj"
+            let build = String.Concat ("build ", project, " -c Release --nologo -v q")
+            let struct (_, asIs) = captureIn tree "dotnet" build
+            let library = Path.Combine (tree, "src", "Ranvier.Plume", "Ranvier.Plume.fsproj")
+            let entry = String.Concat ("<Compile Include=\"", implementation, "\" />")
+            let listed = File.ReadAllText library
+            File.WriteAllText (library, listed.Replace (entry, ""))
+            File.Delete (Path.Combine (tree, "src", "Ranvier.Plume", implementation))
+            let struct (output, without) = captureIn tree "dotnet" build
+
+            // An error line is "<file>(<line>,<column>): error FS<number>: <text> [<project>]".
+            let errors =
+                [ for found in Regex.Matches (output, @"(?m)^.*[\\/]([\w.]+\.fs)\((\d+),(\d+)\): error (FS\d+): (.*?)(?: \[.*\])?\r?$") ->
+                      found.Groups[1].Value, found.Groups[4].Value, String.Concat (found.Groups[1].Value, "(", found.Groups[2].Value, ",", found.Groups[3].Value, "): error ", found.Groups[4].Value, ": ", found.Groups[5].Value) ]
+                |> List.distinct
+
+            // FS0039 is "a name is not defined": the type itself, or a function of its module.
+            let named = errors |> List.filter (fun (file, code, _) -> file = tests && code = "FS0039")
+            let elsewhere = errors |> List.filter (fun (file, _, _) -> not (file.EndsWith "Tests.fs") && file <> "Helpers.fs")
+            let holds = listed.Contains entry && asIs = 0 && without <> 0 && not named.IsEmpty && elsewhere.IsEmpty
+
+            if not holds then
+                failed <- failed + 1
+
+            printfn "  %s  step %s, at %s: the commit builds as it is (exit code %d); without %s the test project does not compile (exit code %d)" (if holds then "pass" else "FAIL") step commit asIs implementation without
+            printfn "        %d distinct errors, all in the test project's files: %b; %d of them in %s are FS0039, a name that is not defined" errors.Length elsewhere.IsEmpty named.Length tests
+
+            match named with
+            | (_, _, first) :: _ -> printfn "        the first: %s" first
+            | [] -> ()
+        finally
+            Directory.Delete (work, true)
+
+    if failed > 0 then
+        eprintfn "%d of %d fails-first runs did not fail as the plan says" failed cases.Length
+        exit 1
+
+    printfn "both runs fail for the reason the plan gives: what the tests are written against is not there"
 
 // The hot reload host ends with exit code 0 whatever its steps found, so the steps are read from its result.
 let dev () =
@@ -238,10 +309,11 @@ match fsi.CommandLineArgs |> Array.skip 1 |> Array.filter (fun a -> a <> "--") |
 | Some "dev" -> dev ()
 | Some "traced" -> traced ()
 | Some "acceptance" -> acceptance ()
+| Some "red" -> red ()
 | Some "ci"
 | None ->
     build ()
     test ()
 | Some other ->
-    eprintfn "unknown target '%s' (build, test, ci, check, dev, traced, acceptance)" other
+    eprintfn "unknown target '%s' (build, test, ci, check, dev, traced, acceptance, red)" other
     exit 2
