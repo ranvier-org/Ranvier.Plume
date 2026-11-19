@@ -9,7 +9,7 @@ let versions = [ SiteVersion.root "0.1" ]
 
 let theme =
     Theme.defaults
-    |> Theme.navbar [ NavbarSection ("Guide", "guide", "/guide/introduction/") ]
+    |> Theme.navbar [ NavbarSection ("Guide", "guide", "/guide/introduction/"); NavbarSection ("API", "reference", "/reference/") ]
     |> Theme.navbarEnd
         [
             NavbarDynamicWidget (Versions.switcher (Versions.versions versions Versions.defaults))

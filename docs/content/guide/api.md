@@ -5,7 +5,7 @@ description: Navigate the public modules and their documented declarations.
 
 # API reference
 
-Browse the generated [state API](/Ranvier.Plume/reference/ranvier-plume/) and [view API](/Ranvier.Plume/reference/ranvier-plume-view/) for signatures, members and XML comments from the release assemblies.
+Browse the generated [state API](https://ranvier-org.github.io/Ranvier.Plume/reference/ranvier-plume/) and [view API](https://ranvier-org.github.io/Ranvier.Plume/reference/ranvier-plume-view/) for signatures, members and XML comments from the release assemblies.
 
 The packages include XML documentation beside each assembly for editor completion. The linked modules contain the signatures, discriminated unions and remarks for this release.
 

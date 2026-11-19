@@ -29,7 +29,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Generate and link-check documentation
-        run: dotnet run --project docs/docs.fsproj -c Release -- build --strict
+        run: |
+          dotnet run --project docs/docs.fsproj -c Release -- build --strict
+          for path in reference/ranvier-plume/index.html reference/ranvier-plume-view/index.html llms.txt llms-full.txt; do
+            test -s "docs/output/$path"
+          done
       - name: Upload documentation artifact
         uses: actions/upload-artifact@v7
         with:
