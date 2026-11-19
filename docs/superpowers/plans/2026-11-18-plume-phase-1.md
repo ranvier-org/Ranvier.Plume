@@ -20,7 +20,7 @@ Expecto.FsCheck 11.0.0-alpha8-fscheck2.
 reverse of the order of the steps below. The "run; it fails" steps of tasks 1 and 2 and the spike of task 8 were
 therefore not made when the plan says. Each is marked "made late" where it stands, and `docs/ACCEPTANCE.md`, "The
 order the work was done in", has the record. Step 2 of task 1 was ticked with its port partial, and is marked
-"completed late".
+"completed late". The user ruled on 2026-11-19 that the four late steps count as done.
 
 ## Core and view state
 

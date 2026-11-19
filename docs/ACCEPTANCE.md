@@ -17,7 +17,8 @@ builds, hidden windows of 1280 x 800 CSS px with GPU compositing on (`Window.IsG
 
 The three criteria pass. The plan's order of work was not followed: in tasks 1 to 8 the code was written before
 its tests, and three of the plan's steps were ticked for acts that had not been made ("The order the work was done
-in"). A fourth was ticked with its work partial ("The port of Atelier's text tests").
+in"). A fourth was ticked with its work partial ("The port of Atelier's text tests"). You ruled on 2026-11-19 that
+the four count as done.
 
 ## The plan, task by task
 
@@ -29,6 +30,11 @@ its step-by-step verdicts are the ones to go by.
 **Three of the 41 ticks are for steps made late**: 1.3, 2.2 and 8.1. The plan marks each "made late", and "The
 order the work was done in" says what happened. **A fourth, 1.2, was ticked with its port partial**; the plan
 marks it "completed late", and "The port of Atelier's text tests" says what was missing.
+
+**Your ruling of 2026-11-19: the four late steps count as done.** I put the question to you in the app's question
+box once this record held the account of all four, with two answers to choose from, "Yes, they count" and "No,
+not complete". You chose the first. The plan is complete as carried out, not as written: the order of the work
+stays what it was.
 
 | Task | Steps | Commits | Evidence |
 |---|---|---|---|
