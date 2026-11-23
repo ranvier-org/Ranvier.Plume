@@ -21,4 +21,4 @@ Measured here with `dotnet fsi --exec scripts/measure-search.fsx` against the Re
 | Integrators.fs | 20,000 | 1.082 ms | 0.0011 ms | 1.039 ms |
 | Ephemeris.fs | 1,000,000 | 23.885 ms | 0.0006 ms | 19.686 ms |
 
-An active search currently rebuilds its index when the text snapshot changes. On the largest file the rebuild alone can exceed a display frame. Clearing the search drops this work from subsequent edits.
+This first implementation rebuilt the index when the text snapshot changed. The [incremental search measurements](incremental-search.md) cover the released implementation and include focused typing with a live query.

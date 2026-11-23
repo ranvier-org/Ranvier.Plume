@@ -42,5 +42,5 @@ let observations () =
         let hits = Search.matches editor.State.Value
         if hits.Count <> expected.Count then failwith "incremental match count"
         for rank in [0; 254; 255; 256; 511; 1024; 1536; hits.Count-1] do
-            rows.Add $"Example incremental_{step}_{rank} : {hits.From[rank]} = {expected[rank]}. Proof. reflexivity. Qed."
+            rows.Add $"Example incremental_{step}_{rank} : {hits.From[rank]}%%N = {expected[rank]}%%N. Proof. reflexivity. Qed."
     List.ofSeq rows
