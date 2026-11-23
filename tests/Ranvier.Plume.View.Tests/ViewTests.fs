@@ -746,6 +746,42 @@ let tests =
                     mounted.Step ()
                     Expect.isTrue (lit ()) "a move of the cursor lights it at once")
 
+            testCase "native bracket entry, literal IME and paste, and visible matching markers"
+            <| fun () ->
+                withView [ "]" ] (BracketMatching.extension :: Brackets.autoClose :: standard) 800 (fun mounted ->
+                    let host = mounted.Window.Host
+                    host.SetFocused true
+                    mounted.Run(fun () -> mounted.View.Focus())
+                    let text () = Text.toString mounted.Editor.Text.Value
+                    let typeKey key code =
+                        host.Type(key, code, key)
+                        mounted.Step()
+                    typeKey "[" "BracketLeft"
+                    Expect.equal (text ()) "[]]" "typed open pairs"
+                    Expect.equal (shown mounted "[data-pm~=matching-bracket]").Length 2 "both matched glyphs"
+                    typeKey "]" "BracketRight"
+                    Expect.equal (text (),mounted.Editor.Selection.Value.Main.Head) ("[]]",2) "skips its generated closer"
+                    typeKey "]" "BracketRight"
+                    Expect.equal (text ()) "[]]]" "unrelated existing closer accepts literal input"
+                    host.SetComposition("(", 1, 1)
+                    Expect.equal (text ()) "[]]]" "provisional composition"
+                    host.CommitComposition "("
+                    mounted.Step()
+                    Expect.equal (text ()) "[]](]" "composition commits literally"
+                    host.SetClipboard((fun _ _ _ -> ()), (fun () -> [struct ("text/plain", "{")]))
+                    host.Key(0, "v", "KeyV", null, 2, false) |> ignore
+                    mounted.Step()
+                    Expect.equal (text ()) "[]]({]" "a single pasted opener stays literal")
+
+            testCase "a bracket in a folded body has no marker on the fold header"
+            <| fun () ->
+                withView ["("; "x"; ")"; "tail"] [Folding.extension; BracketMatching.extension] 800 (fun mounted ->
+                    let marks () = (shown mounted "[data-pm~=matching-bracket]").Length
+                    Expect.equal (marks ()) 2 "pair before folding"
+                    mounted.Run(fun () -> Folding.fold 0 2 mounted.Editor |> ignore)
+                    mounted.Step()
+                    Expect.equal (marks ()) 1 "only the opener remains visible")
+
             testCase "native selection, composition and clipboard share the editor transaction path"
             <| fun () ->
                 withView [ "abc" ] standard 800 (fun mounted ->
@@ -972,6 +1008,28 @@ let tests =
                     mounted.Run (fun () -> editor.Dispatch [ Tx.effect (EditorView.scrollIntoView.Of 0) ])
                     mounted.Step ()
                     Expect.equal mounted.View.Viewport.Value.FirstLine 0 "the effect scrolls to a position")
+
+            testCase "folds remove body rows from rendering, hit testing and scrolling"
+            <| fun () ->
+                withView (manyLines 100) (Folding.extension :: standard) 100 (fun mounted ->
+                    let editor = mounted.Editor
+                    let view = mounted.View
+                    let line n = Text.line n editor.Text.Value
+                    mounted.Run (fun () -> Expect.isTrue (Folding.fold 0 90 editor) "collapse")
+                    mounted.Step ()
+                    let rows = mounted.Rows |> Array.map textOf
+                    Expect.isTrue (rows |> Array.exists (fun text -> text.Contains "…")) "fold header"
+                    Expect.isFalse (Array.contains "line 1" rows) "body is absent"
+                    mounted.Run (fun () ->
+                        Expect.equal (view.PosAtCoords 0.0 25.0) (line 91).From "second row hits the first line after the fold"
+                        Expect.equal ((view.CoordsAtPos (line 91).From).Top - (view.CoordsAtPos 0).Top) 20.0 "adjacent on the sheet")
+                    mounted.Run (fun () -> view.ScrollTo 1e9)
+                    mounted.Step ()
+                    Expect.equal view.ScrollTop.Value (float view.Projection.Value.Count * 20.0 - view.Height.Value + 40.0) "compressed scroll range"
+                    Expect.equal view.Viewport.Value.LastLine 99 "document line at the bottom"
+                    mounted.Run (fun () -> Expect.isTrue (Folding.unfold 0 editor) "expand")
+                    mounted.Step ()
+                    Expect.equal view.Projection.Value.Count 100 "original row count")
 
             testCase "a viewport without height"
             <| fun () ->

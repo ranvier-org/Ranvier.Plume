@@ -8,13 +8,13 @@ trap 'rm -rf -- "$scratch"' EXIT
 dotnet=${DOTNET:-dotnet}
 "$dotnet" build tests/Ranvier.Plume.Tests/Ranvier.Plume.Tests.fsproj -c Release --nologo
 "$dotnet" fsi --exec proofs/Conformance.fsx "$work/Observations.v" "$@"
-cp proofs/{Retention,Edits,Cursors,Snapshots,InputGeometry,Audit}.v "$work/"
+cp proofs/{Retention,Edits,Cursors,Snapshots,InputGeometry,Search,Folds,Brackets,Audit}.v "$work/"
 cd "$work"
 if grep -nE '(^|[[:space:]])(Admitted|admit|give_up|Axiom|Conjecture)([[:space:].]|$)' *.v; then
   echo "Unproved declaration in the Plume theories" >&2
   exit 1
 fi
-for theory in Retention Edits Cursors Snapshots InputGeometry Observations; do
+for theory in Retention Edits Cursors Snapshots InputGeometry Search Folds Brackets Observations; do
   rocq compile -Q . Plume "$theory.v"
 done
 rocq compile -Q . Plume Audit.v > audit.txt

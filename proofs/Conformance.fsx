@@ -4,6 +4,10 @@
 #r "Ranvier.Plume.dll"
 #load "../src/Ranvier.Plume.View/InputGeometry.fs"
 
+#load "SearchConformance.fsx"
+#load "FoldConformance.fsx"
+#load "BracketConformance.fsx"
+
 open System
 open System.IO
 open Ranvier
@@ -11,7 +15,7 @@ open Ranvier.Plume
 
 let lines = ResizeArray<string>()
 lines.Add "From Stdlib Require Import List NArith."
-lines.Add "From Plume Require Import Edits Retention Snapshots InputGeometry."
+lines.Add "From Plume Require Import Edits Retention Snapshots InputGeometry Search Folds Brackets."
 lines.Add "Import ListNotations."
 
 let list xs = "[" + String.concat "; " xs + "]"
@@ -180,4 +184,6 @@ for a in 0..3 do
                 check $"clip_{a}_{b}_{c}_{d}" $"clip {a} {b} {c} {d} = ({l},{r})"
                 let kept = if Ranvier.Plume.View.InputGeometry.untouched a b c d then "true" else "false"
                 check $"untouched_{a}_{b}_{c}_{d}" $"untouched {a} {b} {c} {d} = {kept}"
+for observe in [SearchConformance.observations; FoldConformance.observations; BracketConformance.observations] do
+    lines.AddRange(observe ())
 File.WriteAllLines(fsi.CommandLineArgs[1], lines)

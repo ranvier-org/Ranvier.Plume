@@ -64,6 +64,8 @@ type EditorView =
         Theme: Theme
         /// The lines shown.
         Viewport: Memo<VisibleRange>
+        /// The visible row of each document line, including rows outside the viewport.
+        Projection: Memo<FoldProjection>
         HasFocus: Memo<bool>
         /// The distance scrolled from the document's top, in CSS pixels, as the rows are laid out for.
         ScrollTop: Memo<float>

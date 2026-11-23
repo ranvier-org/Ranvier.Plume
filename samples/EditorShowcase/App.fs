@@ -63,7 +63,9 @@ let features: (string * Compartment * Extension) list =
 type FileSlot =
     { Index: int
       Editor: Editor
-      Scheduler: FrameScheduler }
+      Scheduler: FrameScheduler
+      FindText: Signal<string>
+      Replacement: Signal<string> }
 
 /// The shell's instance.
 [<ReferenceEquality>]
@@ -131,14 +133,18 @@ let setLayer (s: State) (value: bool) =
     s.Layer.Value <- value
     reconfigure s layerSlot (EditorView.compositorLayer.Of value)
 
+let private documentY (view: EditorView) position =
+    let line = (Text.lineAt position view.Editor.Text.Value).Number
+    float (view.Projection.Value.VisualRow line) * view.Theme.LineHeight
+
 let private showDiagnostic (view: EditorView voption) stopTour =
     match view with
     | ValueSome view ->
         let marks = view.Editor.Field(diagnostics).Value
         if marks.Count > 0 then
             stopTour ()
-            let line = Text.lineAt marks.From[0] view.Editor.Text.Value
-            view.ScrollTo(float (max 0 (line.Number - 3)) * view.Theme.LineHeight)
+            Folding.reveal marks.From[0] view.Editor |> ignore
+            view.ScrollTo(max 0.0 (documentY view marks.From[0] - 2.0 * view.Theme.LineHeight))
             view.Editor.Dispatch [Tx.selection (EditorSelection.single marks.From[0] marks.From[0])]
             view.RunFrame()
             view.Focus()
@@ -191,6 +197,10 @@ let private setup (ctx: Setup) (props: Props) : State =
                     onToggleTour.Value ()
                     true) ]
           Keymap.extension Keymap.defaults
+          SearchView.highlight "search-match"
+          Folding.extension
+          Brackets.autoClose
+          BracketMatching.extension
           StateField.extension diagnostics
           diagnosticMarks
           EditorView.accessibleName.Of session.Files[index].Name
@@ -214,7 +224,9 @@ let private setup (ctx: Setup) (props: Props) : State =
                 files[index] <-
                     { Index = index
                       Editor = Editor.create (Document.create text) (extensionsFor index)
-                      Scheduler = scheduler })
+                      Scheduler = scheduler
+                      FindText = Api.createSignal ""
+                      Replacement = Api.createSignal "" })
 
         files[index]
 
@@ -286,7 +298,7 @@ let private setup (ctx: Setup) (props: Props) : State =
                     tourClock <- tourClock + dt
                     let burst = Math.Pow(max 0.0 (sin (tourClock * 0.8)), 6.0)
                     let lineHeight = view.Theme.LineHeight
-                    let range = max 0.0 (float lines.Value * lineHeight - view.Height.Value + 2.0 * lineHeight)
+                    let range = max 0.0 (float view.Projection.Value.Count * lineHeight - view.Height.Value + 2.0 * lineHeight)
                     let next = view.ScrollTop.Value + (160.0 + 5200.0 * burst) * dt
                     view.ScrollTo(if next >= range then 0.0 else next)
 
@@ -445,7 +457,7 @@ let private sidebarView: TemplateView<State> =
         render hud (fun (s: State) -> s.Stats)
 
         div (styles { Styles.hint }) {
-            "Hover the underlined Mu: float for its unit diagnostic. Click or drag to select, type to edit, Ctrl+Z to undo. F5 starts or stops the tour."
+            "Hover the underlined Mu: float for its unit diagnostic. Select multiple lines to fold them. Type an opening bracket to insert its mate. Ctrl+Z undoes an edit. F5 starts or stops the tour."
         }
     }
 
@@ -459,6 +471,65 @@ let private tabsView: TemplateView<State> =
             ) {
                 fun (s: State) -> fileName s index
             }
+    }
+
+let private editAction (action: FileSlot -> unit) (s: State) _ =
+    if s.Tour.Peek then toggleTour s
+    let slot = activeSlot s
+    action slot
+    match s.Props.Session.MountedView with
+    | ValueSome view ->
+        let head = slot.Editor.Selection.Value.Main.Head
+        Folding.reveal head slot.Editor |> ignore
+        let y = documentY view head
+        if y < view.ScrollTop.Value || y + view.Theme.LineHeight > view.ScrollTop.Value + view.Height.Value then
+            view.ScrollTo(max 0.0 (y - 2.0 * view.Theme.LineHeight))
+        view.RunFrame()
+        view.Focus()
+    | ValueNone -> ()
+
+let private find (slot: FileSlot) =
+    let query = slot.FindText.Peek
+    Search.setQuery (if query = "" then ValueNone else ValueSome (Search.literal query false)) slot.Editor |> ignore
+    if query <> "" then Search.next slot.Editor |> ignore
+
+let private foldSelection (slot: FileSlot) =
+    let editor = slot.Editor
+    let doc = editor.Text.Value
+    let range = editor.Selection.Value.Main
+    let first = (Text.lineAt range.From doc).Number
+    let last = (Text.lineAt (max range.From (range.To - 1)) doc).Number
+    if last > first then
+        Folding.fold first last editor |> ignore
+
+let private toolButton (label: string) action : TemplateView<State> =
+    button (button.batch (styles { Styles.toolButton }), button.onMousedown keepFocus, button.onClick (editAction action)) { label }
+
+let private toolField (label: string) (field: FileSlot -> Signal<string>) =
+    input (
+        input.batch (styles { Styles.toolField }),
+        input.attribute ("aria-label", label),
+        input.attribute ("placeholder", label),
+        input.value (fun (s: State) -> (field (activeSlot s)).Value),
+        input.on ("input", fun (s: State) ev ->
+            match box ev.target with
+            | :? HTMLInputElement as element -> (field (activeSlot s)).Value <- element.value
+            | _ -> ())
+    )
+
+let private editingTools: TemplateView<State> =
+    div (styles { Styles.toolBar }) {
+        toolField "Find text" (fun slot -> slot.FindText)
+        toolButton "Find" find
+        toolButton "Previous" (fun slot -> Search.previous slot.Editor |> ignore)
+        toolButton "Next" (fun slot -> Search.next slot.Editor |> ignore)
+        toolField "Replacement" (fun slot -> slot.Replacement)
+        toolButton "Replace" (fun slot -> Search.replaceCurrent slot.Replacement.Peek slot.Editor |> ignore)
+        toolButton "Replace all" (fun slot -> Search.replaceAll slot.Replacement.Peek slot.Editor |> ignore)
+        toolButton "Fold selection" foldSelection
+        toolButton "Unfold" (fun slot ->
+            let line = Text.lineAt slot.Editor.Selection.Value.Main.Head slot.Editor.Text.Value
+            Folding.unfold line.Number slot.Editor |> ignore)
     }
 
 let private statusView: TemplateView<State> =
@@ -494,6 +565,7 @@ let app: Component<Props> =
 
                 div (styles { Styles.main }) {
                     tabsView
+                    editingTools
                     div (styles { Styles.crumbs }) { fun (s: State) -> "src  >  kernels  >  " + fileName s s.Active.Value }
 
                     div (styles { Styles.editorArea }) {
