@@ -25,14 +25,26 @@ foreach ($id in 'Ranvier.Plume', 'Ranvier.Plume.View', 'Ranvier.Plume.Traced', '
         $suffix = if ($id.EndsWith('.Traced')) { '.Traced' } else { '' }
         foreach ($group in $meta.dependencies.group) {
             $deps = @($group.dependency)
+            foreach ($ranvierDep in ($deps | Where-Object { $_.id.StartsWith('Ranvier') })) {
+                if ($suffix -eq '.Traced' -and -not $ranvierDep.id.EndsWith('.Traced')) {
+                    throw "$id has untraced dependency $($ranvierDep.id)"
+                }
+                if ($suffix -eq '' -and $ranvierDep.id.EndsWith('.Traced')) {
+                    throw "$id has traced dependency $($ranvierDep.id)"
+                }
+            }
             if ($assembly -eq 'Ranvier.Plume.View') {
                 $sibling = $deps | Where-Object id -eq "Ranvier.Plume$suffix"
                 if ($sibling.version -ne "[$version]") { throw "$id must pin its matching state package" }
-                $keyboard = 'Ranvier.Keyboard.Dom'
+                if (($deps | Where-Object id -eq "Ranvier.View$suffix").version -ne '0.4.0') { throw "$id has unexpected view dependency" }
+                if (($deps | Where-Object id -eq "Ranvier.View.Dom$suffix").version -ne '0.4.0') { throw "$id has unexpected view dom dependency" }
+                if (($deps | Where-Object id -eq "Ranvier.Css$suffix").version -ne '0.3.0') { throw "$id has unexpected css dependency" }
+                if (($deps | Where-Object id -eq "Ranvier.Css.View$suffix").version -ne '0.3.1') { throw "$id has unexpected css view dependency" }
+                $keyboard = "Ranvier.Keyboard.Dom$suffix"
             } else {
-                if ($deps.id -notcontains "Ranvier$suffix") { throw "$id missing core dependency" }
+                if (($deps | Where-Object id -eq "Ranvier$suffix").version -ne '0.2.1') { throw "$id has unexpected core dependency" }
                 if ($names -notcontains 'fable/Keymap.fs') { throw "$id missing Fable keymap source" }
-                $keyboard = 'Ranvier.Keyboard'
+                $keyboard = "Ranvier.Keyboard$suffix"
             }
             if (($deps | Where-Object id -eq $keyboard).version -ne '0.2.0') { throw "$id has unexpected keyboard dependency" }
         }

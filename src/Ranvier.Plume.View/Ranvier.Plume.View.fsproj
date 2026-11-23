@@ -11,7 +11,7 @@
     <Description>The EditorView component of Ranvier.Plume for Ranvier.View: a virtualised text view with pooled rows, gutters, layers, pointer and keyboard input, and a theme over Ranvier.Css.</Description>
     <PackageTags>editor;text;view;ranvier;reactive;fsharp</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <AssemblyVersion>0.0.0.0</AssemblyVersion>
     <RanvierAotClean>true</RanvierAotClean>
     <RanvierExactSiblingVersions>true</RanvierExactSiblingVersions>
@@ -38,9 +38,9 @@
     <PackageReference Include="Fable.Core" Version="5.3.0" />
     <PackageReference Include="Ranvier.View$(RanvierPackageSuffix)" Version="$(RanvierViewVersion)" />
     <PackageReference Include="Ranvier.View.Dom$(RanvierPackageSuffix)" Version="$(RanvierViewVersion)" />
-    <PackageReference Include="Ranvier.Css" Version="$(RanvierCssVersion)" />
-    <PackageReference Include="Ranvier.Css.View" Version="$(RanvierCssVersion)" />
-    <PackageReference Include="Ranvier.Keyboard.Dom" Version="$(RanvierKeyboardVersion)" />
+    <PackageReference Include="Ranvier.Css$(RanvierPackageSuffix)" Version="$(RanvierCssVersion)" />
+    <PackageReference Include="Ranvier.Css.View$(RanvierPackageSuffix)" Version="$(RanvierCssViewVersion)" />
+    <PackageReference Include="Ranvier.Keyboard.Dom$(RanvierPackageSuffix)" Version="$(RanvierKeyboardVersion)" />
   </ItemGroup>
   <ItemGroup Condition="'$(RanvierTrace)' == 'true'">
     <AssemblyMetadata Include="RanvierTrace" Value="true" />
