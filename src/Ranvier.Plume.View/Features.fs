@@ -55,7 +55,7 @@ module ActiveLine =
                                 let range = view.Viewport.Value
                                 let line = Text.lineAt head view.Editor.Text.Value
 
-                                if line.Number < range.FirstLine || line.Number > range.LastLine then
+                                if line.Number < range.FirstLine || line.Number > range.LastLine || not (view.Projection.Value.IsVisible line.Number) then
                                     Array.empty
                                 else
                                     let at = view.CoordsAtPos line.From
@@ -101,18 +101,20 @@ module DrawSelection =
                                     let first = Text.lineAt (max range.From shown.From) text
                                     let last = Text.lineAt (min range.To shown.To) text
 
-                                    for number in first.Number .. last.Number do
+                                    let projection = view.Projection.Value
+                                    for row in projection.VisualRow first.Number .. projection.VisualRow last.Number do
+                                        let number = projection.DocumentLine row
                                         let line =
                                             if number = first.Number then first
                                             elif number = last.Number then last
                                             else Text.line number text
 
-                                        let from = max range.From line.From
+                                        let from = Math.Clamp(range.From, line.From, line.To)
                                         let at = view.CoordsAtPos from
                                         // A line selected through its line break shows one column more.
                                         let right =
                                             (view.CoordsAtPos (min range.To line.To)).Left
-                                            + (if range.To > line.To then width else 0.0)
+                                            + (if range.From <= line.To && range.To > line.To then width else 0.0)
 
                                         if right > at.Left then
                                             markers.Add

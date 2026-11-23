@@ -26,6 +26,8 @@
     <Compile Include="InputGeometry.fs" />
     <Compile Include="NativeInput.fs" />
     <Compile Include="Decoration.fs" />
+    <Compile Include="SearchView.fs" />
+    <Compile Include="BracketView.fs" />
     <Compile Include="Component.fs" />
     <InternalsVisibleTo Include="Ranvier.Plume.View.Tests" />
     <None Include="../../LICENSE" Pack="true" PackagePath="licenses/Ranvier.Plume/" />

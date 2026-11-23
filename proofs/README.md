@@ -26,3 +26,7 @@ With .NET and the [pinned opam toolchain](../.github/workflows/proofs.yml), run 
 ## UTF-16 boundaries
 
 The differential fixture includes every UTF-16 offset in `aλ🙂b`, including the interior of the surrogate pair. The original failing edit inserted `x` at the start and deleted the first three code units. The current check compares both the resulting low surrogate and the inverse edit with the reference sequence. Rope leaves retain the exact line when its code units cannot be represented by UTF-8. See [issue #3](https://github.com/ranvier-org/Ranvier.Plume/issues/3).
+
+## Editor tools
+
+`Search.v` proves the ordered search partition, shrinking bisection and wrapped navigation. `Folds.v` proves row projection and its inverse for visible lines, including composition of collapsed runs. `Brackets.v` models typed nesting, selected-text wrapping and generated closer ownership. The corresponding F# scripts emit concrete observations from the state package for Rocq to check. The regex engine, native event delivery and DOM geometry are outside these models. The hidden-window tests exercise those integration boundaries.

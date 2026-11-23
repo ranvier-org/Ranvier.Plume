@@ -282,6 +282,7 @@ type internal RowWindow =
         State: EditorState
         Config: RowConfig
         Lines: int
+        Projection: FoldProjection
         /// The scroll position the rows are laid out for, in whole CSS pixels.
         Top: float
         /// The first line shown.
@@ -349,7 +350,11 @@ module internal Rows =
         (written: int64 ref)
         : RowWindow =
         let text = update.State.Doc
-        let total = text.Lines
+        let projection =
+            match previous with
+            | ValueSome old -> Folding.updateProjection old.State old.Projection update.State
+            | ValueNone -> Folding.projection update.State
+        let total = projection.Count
 
         let pool =
             if height <= 0.0 then
@@ -390,7 +395,7 @@ module internal Rows =
                         dirty[1] <- max dirty[1] (Text.lineAt toB text).Number)
                     (ChangeSet.desc update.Changes)
 
-                let edit = struct (generation, dirty[0], dirty[1], total <> before.Lines)
+                let edit = struct (generation, dirty[0], dirty[1], text.Lines <> before.Text.Lines)
 
                 if List.length before.Edits >= MaxEdits then
                     let struct (dropped, _, _, _) = List.item (MaxEdits - 1) before.Edits
@@ -405,6 +410,7 @@ module internal Rows =
             State = update.State
             Config = config
             Lines = total
+            Projection = projection
             Top = top
             First = first
             Start = start
@@ -427,6 +433,7 @@ module internal Rows =
             Seq.empty
         elif
             before.Pool <> pool
+            || ((before.Projection.HasFolds || next.Projection.HasFolds) && not (obj.ReferenceEquals(before.Projection, next.Projection)))
             || before.Anchor <> next.Anchor
             || before.LineHeight <> next.LineHeight
             || not (obj.ReferenceEquals (before.Config, next.Config))
@@ -456,9 +463,9 @@ module internal Rows =
                         if shifted then
                             next.Start + pool - 1
                         else
-                            min to' (next.Start + pool - 1)
+                            min (next.Projection.VisualRow to') (next.Start + pool - 1)
 
-                    for line in max from next.Start .. last do
+                    for line in max (next.Projection.VisualRow from) next.Start .. last do
                         slots.Add (slotOf line)
 
             slots
@@ -500,9 +507,12 @@ module internal Rows =
                 blank window.LineHeight
             else
                 window.Written.Value <- window.Written.Value + 1L
-                let line = Text.line number window.Text
+                let documentLine = window.Projection.DocumentLine number
+                let line = Text.line documentLine window.Text
 
                 let html = window.Markup.Markup (window.Config.Language, window.Config.Cache, window.Config.TabSize, line.Text)
+
+                let html = if window.Projection.IsHeader documentLine then html + " <span data-pm=\"folded\">…</span>" else html
 
                 let gutter =
                     if window.Config.Gutters.Length = 0 then
@@ -514,7 +524,7 @@ module internal Rows =
                         builder.ToString ()
 
                 {
-                    Line = number
+                    Line = documentLine
                     Top = float (number - window.Anchor) * window.LineHeight + Lead
                     GutterHtml = gutter
                     Html = html

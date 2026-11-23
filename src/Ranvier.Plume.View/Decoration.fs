@@ -48,7 +48,9 @@ module Decoration =
             let left, right = max first shown.From, min last shown.To
             if left < right then
                 let finalLine = (Text.lineAt (right - 1) doc).Number
-                for n in (Text.lineAt left doc).Number .. finalLine do
+                let projection = view.Projection.Value
+                for row in projection.VisualRow (Text.lineAt left doc).Number .. projection.VisualRow finalLine do
+                    let n = projection.DocumentLine row
                     let line = Text.line n doc
                     let struct (a, b) = InputGeometry.segment left right line.From line.To
                     if a < b then

@@ -42,6 +42,32 @@ let movement =
 For bindings loaded from text configuration, `Keymap.bind` and `Keymap.bindShift` accept editor
 notation such as `"Ctrl-z"` and `"Ctrl-k Ctrl-c"`.
 
+## Search, fold and pair brackets
+
+EditorShowcase provides Find, Previous, Next, Replace and Replace all. Select several lines and choose Fold selection to collapse them under the first line. Unfold reopens the header. Typing an opening bracket inserts its mate, and typing the generated closer advances the caret.
+
+```fsharp
+open Ranvier.Plume.View
+
+let editor =
+    Editor.create document [
+        SearchView.highlight "search-match"
+        Folding.extension
+        Brackets.autoClose
+        BracketMatching.extension
+    ]
+
+Search.setQuery (ValueSome (Search.literal "answer" false)) editor |> ignore
+Search.next editor |> ignore
+Search.replaceCurrent "result" editor |> ignore
+```
+
+Use `Search.extension` in a headless editor. Navigation wraps and replacement text is literal. Replace all creates one undo step. On .NET, `Search.regex` validates a non-backtracking pattern and returns a typed result. Empty matches are skipped. Search indexes the full document on the first lookup for a new text snapshot. Repeated navigation and scrolling reuse that index.
+
+`Folding.fold firstLine lastLine` uses inclusive, zero-based document lines. Nested folds survive opening their parent. Edits to hidden text and explicit selections inside it open the affected folds. Selection and clipboard operations retain document offsets.
+
+Bracket matching handles parentheses, square brackets and braces as raw characters, including those in comments and strings. Use `Brackets.matchWithin` to configure the scan distance. Pair insertion is opt-in and leaves paste and IME commits literal.
+
 The [formal verification suite](proofs/README.md) covers edit inversion, retained history and reader cursor ownership, with conformance checks against the compiled editor.
 
 ## Build, test and measure

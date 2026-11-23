@@ -1,4 +1,4 @@
-From Plume Require Import Retention Edits Cursors Snapshots InputGeometry.
+From Plume Require Import Retention Edits Cursors Snapshots InputGeometry Search Folds Brackets.
 Print Assumptions selection_boundary_roundtrip.
 Print Assumptions unchanged_length_offset.
 Print Assumptions underline_visible_exact.
@@ -22,3 +22,16 @@ Print Assumptions back_undo.
 Print Assumptions singleton_materialize.
 Print Assumptions fill_frame.
 Print Assumptions wp_scan.
+Print Assumptions search_cut_partition.
+Print Assumptions search_cycle.
+Print Assumptions TypedBrackets.balanced_prefix.
+Print Assumptions TypedBrackets.matched_pair.
+Print Assumptions TypedBrackets.mismatched_pair.
+Print Assumptions TypedBrackets.wrap_contents.
+Print Assumptions fold_header.
+Print Assumptions fold_visible_inverse.
+Print Assumptions fold_retains_visible_lines.
+Print Assumptions folded_rows_roundtrip.
+Print Assumptions search_bisect_step.
+Print Assumptions TypedBrackets.skip_origin.
+Print Assumptions TypedBrackets.shifted_closer.

@@ -17,3 +17,5 @@ The runner focuses a hidden window, disables tiered compilation, and alternates 
 ## Release measurement
 
 Measured here on Windows x64 with Release .NET 10 in six fresh processes per workload. The median whole turn was **1.933 ms for focused typing** and **1.289 ms for a three-line scroll**. These figures record the release build under the machine load at measurement time. Remeasure the baseline alongside each candidate. [Raw process timings](full-feature-baseline.json)
+
+The [editor tools comparison](editing-tools.md) measures the updated showcase and records active-query costs separately.

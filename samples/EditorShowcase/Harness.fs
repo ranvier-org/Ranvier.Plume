@@ -1036,6 +1036,33 @@ let private tour (options: Options) (picture: string) =
             refreshes 6 |> ignore
             holds "a click on a file opens it" (state.Active.Peek = 1)
             holds $"and its view is mounted with its text: {grouped (graph.Run(fun () -> (view ()).Editor.Text.Value.Lines))} lines" (graph.Run(fun () -> (view ()).Editor.Text.Value.Lines) = session.Files[1].Count)
+            let toolsEditor = state.Files[1]
+            let press label =
+                (button label :?> HTMLElement).click()
+                refreshes 3 |> ignore
+            graph.Run(fun () ->
+                toolsEditor.FindText.Value <- "Mu: float"
+                toolsEditor.Replacement.Value <- "Mu: decimal")
+            press "Find"
+            let selection () = graph.Run(fun () -> toolsEditor.Editor.Selection.Value.Main)
+            let first = selection ()
+            let markCount = (doc.querySelectorAll ".search-match").length
+            holds $"Find selects a result ({first.From}..{first.To}) and paints its visible highlight ({markCount})" (
+                first.To > first.From && not (isNull (doc.querySelector ".search-match")))
+            press "Next"
+            holds "Next selects a later result" ((selection ()).From > first.From)
+            press "Previous"
+            holds "Previous returns to the original result" ((selection ()).From = first.From)
+            press "Replace"
+            let replaced = graph.Run(fun () -> Text.sliceString first.From (first.From + 11) toolsEditor.Editor.Text.Value)
+            holds "Replace edits the selected match" (replaced = "Mu: decimal")
+            graph.Run(fun () ->
+                let doc = toolsEditor.Editor.Text.Value
+                toolsEditor.Editor.Dispatch [ Tx.selection (EditorSelection.single 0 (Text.line 4 doc).To) ])
+            press "Fold selection"
+            holds "Fold selection hides the selected lines" (graph.Run(fun () -> (view ()).Projection.Value.Count = session.Files[1].Count - 4))
+            press "Unfold"
+            holds "Unfold restores the document rows" (graph.Run(fun () -> (view ()).Projection.Value.Count = session.Files[1].Count))
             say (if options.Shown then "  The window was shown for the length of this run and is closed with it." else "  The window was created hidden and never shown.")
             0
         finally

@@ -31,6 +31,9 @@
     <Compile Include="Editor.fs" />
     <Compile Include="Columns.fs" />
     <Compile Include="Commands.fs" />
+    <Compile Include="Search.fs" />
+    <Compile Include="Folding.fs" />
+    <Compile Include="Brackets.fs" />
     <Compile Include="Keymap.fs" />
     <Compile Include="Language.fs" />
     <InternalsVisibleTo Include="Ranvier.Plume.Tests" />

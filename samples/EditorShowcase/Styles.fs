@@ -253,9 +253,36 @@ let statusMode =
         Css.textAlign CssValue.TextAlign.right
     }
 
+let toolBar =
+    utility {
+        Css.display CssValue.Display.flex
+        Declaration.create "flex-wrap" "wrap"
+        Declaration.create "gap" "4px"
+        Css.padding (Css.px 4.)
+        Css.backgroundColor panelBack
+    }
+
+let toolField =
+    utility {
+        Css.width (Css.px 104.)
+        Css.backgroundColor editorBack
+        Css.color ink
+        Declaration.create "border" "1px solid #58616e"
+    }
+
+let toolButton =
+    utility {
+        plainButton
+        Css.color ink
+        Css.padding (Css.px 4.)
+        hover { Css.color accent }
+    }
+
 /// Page-level rules that no element in the view owns.
 let page =
-    [ Rule.style (Selector.unsafeFromText ".unit-diagnostic") [ Css.color accent ]
+    [ Rule.style (Selector.unsafeFromText ".search-match") [ Declaration.create "background-color" "rgba(244,188,74,.34)" ]
+      Rule.style (Selector.unsafeFromText "[data-pm~='matching-bracket']") [ Declaration.create "box-shadow" "inset 0 -2px #64dbc1" ]
+      Rule.style (Selector.unsafeFromText ".unit-diagnostic") [ Css.color accent ]
       Rule.style
           (Selector.unsafeFromText "html,body")
           [ Css.margin (Css.px 0.)

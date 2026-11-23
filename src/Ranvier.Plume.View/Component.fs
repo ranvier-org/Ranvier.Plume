@@ -175,6 +175,7 @@ module internal Surface =
         // ---- Geometry ----
         let anchor = Api.createMemo (fun (_: int voption) -> window.Value.Anchor)
         let top = Api.createMemo (fun (_: float voption) -> window.Value.Top)
+        let projection = Api.createMemo (fun _ -> window.Value.Projection)
 
         let gutterWidth =
             Api.createMemo (fun (_: float voption) ->
@@ -186,7 +187,8 @@ module internal Surface =
             Api.createMemo (fun (_: VisibleRange voption) ->
                 let shown = window.Value
                 let last = max 0 (min (shown.Lines - 1) (int ((shown.Top + max 0.0 height.Value) / lineHeight)))
-                let first = min shown.First last
+                let first = shown.Projection.DocumentLine (min shown.First last)
+                let last = shown.Projection.DocumentLine last
 
                 {
                     FirstLine = first
@@ -221,7 +223,7 @@ module internal Surface =
 
         // ---- Scrolling ----
         let limit () =
-            Rows.maxScroll (Api.untrack (fun () -> editor.Text.Value)).Lines height.Peek lineHeight
+            Rows.maxScroll (Api.untrack (fun () -> projection.Value.Count)) height.Peek lineHeight
 
         let scrollTo (offset: float) =
             let target = Math.Clamp (offset, 0.0, limit ())
@@ -296,9 +298,10 @@ module internal Surface =
         poll 50.0
 
         let reveal (position: int) =
+            Folding.reveal position editor |> ignore
             let text = Api.untrack (fun () -> editor.Text.Value)
             let line = Text.lineAt (Math.Clamp (position, 0, text.Length)) text
-            let lineTop = float line.Number * lineHeight
+            let lineTop = float (Api.untrack (fun () -> projection.Value.VisualRow line.Number)) * lineHeight
             let current = scrollTarget.Peek
             let visible = height.Peek
 
@@ -391,6 +394,7 @@ module internal Surface =
                 Scheduler = scheduler
                 Theme = config.Theme
                 Viewport = viewport
+                Projection = projection
                 HasFocus = Api.createMemo (fun (_: bool voption) -> focused.Value)
                 ScrollTop = top
                 Height = Api.createMemo (fun (_: float voption) -> height.Value)
@@ -408,7 +412,9 @@ module internal Surface =
                     fun x y ->
                         Api.untrack (fun () ->
                             let text = editor.Text.Value
-                            let line = Text.line (Math.Clamp (int ((top.Value + y) / lineHeight), 0, text.Lines - 1)) text
+                            let p = projection.Value
+                            let row = Math.Clamp (int ((top.Value + y) / lineHeight), 0, p.Count - 1)
+                            let line = Text.line (p.DocumentLine row) text
                             line.From + Columns.offsetAt line.Text tabSize.Value ((x - gutterWidth.Value) / charWidth.Value))
                 CoordsAtPos =
                     fun position ->
@@ -416,11 +422,17 @@ module internal Surface =
                         let line = Text.lineAt (Math.Clamp (position, 0, text.Length)) text
                         let width = charWidth.Value
                         let tabs = tabSize.Value
-                        let within = min (position - line.From) line.Text.Length
+                        let row = projection.Value.VisualRow line.Number
+                        let shown = projection.Value.DocumentLine row
+                        let line, within =
+                            if shown = line.Number then line, Math.Clamp(position - line.From, 0, line.Text.Length)
+                            else
+                                let header = Text.line shown text
+                                header, header.Text.Length
 
                         {
                             Left = gutterWidth.Value + float (Columns.columnOf line.Text tabs within) * width
-                            Top = float (line.Number - anchor.Value) * lineHeight + Rows.Lead
+                            Top = float (row - anchor.Value) * lineHeight + Rows.Lead
                             Width = float (Columns.widthAt line.Text tabs within) * width
                             Height = lineHeight
                         }
@@ -571,7 +583,7 @@ module internal Handlers =
                 if not (ev.target :? HTMLTextAreaElement) && not ev.ctrlKey && not ev.altKey && not ev.metaKey then
                     match KeyChord.tryPlainText chord with
                     | ValueSome text ->
-                        if Commands.insertText text editor then
+                        if Brackets.typeText text editor then
                             ev.preventDefault ()
                     | ValueNone -> ()
 
@@ -864,7 +876,7 @@ module EditorView =
                                 let head = v.Editor.Selection.Value.Main.Head
                                 let rect = v.CoordsAtPos head
                                 let line = Text.lineAt head v.Editor.Text.Value
-                                let y = Math.Clamp(float line.Number * rect.Height - v.ScrollTop.Value, 0., max 0. (v.Height.Value - rect.Height))
+                                let y = Math.Clamp(float (v.Projection.Value.VisualRow line.Number) * rect.Height - v.ScrollTop.Value, 0., max 0. (v.Height.Value - rect.Height))
                                 String.Concat("left:min(", Px.text rect.Left, ", 99%);top:", Px.text y, ";height:", Px.text rect.Height)
                             else "left:0;top:0"
                         "position:absolute;opacity:0;pointer-events:none;overflow:hidden;resize:none;width:1px;padding:0;border:0;" + pos),

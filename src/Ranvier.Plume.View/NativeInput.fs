@@ -50,13 +50,17 @@ module internal NativeInput =
         let valid () =
             obj.ReferenceEquals(savedDoc, editor.Text.Peek) && savedSelection = editor.Selection.Peek
 
-        let input () =
+        let input (event: Event) =
             let next = area.value
             if active.Peek && not composing && not writing && next <> value then
                 if valid () && not readOnly.Peek then
                     let struct (a, b, c) = replacement value next from finish
                     let inserted = next.Substring(a, c-a)
-                    if a = from && b = finish then Commands.insertText inserted editor |> ignore
+                    if a = from && b = finish then
+                        match event with
+                        | :? InputEvent as typed when typed.inputType = "insertText" && not typed.isComposing ->
+                            Brackets.typeText inserted editor |> ignore
+                        | _ -> Commands.insertText inserted editor |> ignore
                     else
                         let first = start + rawOffset raw a
                         editor.Dispatch [
@@ -108,8 +112,8 @@ module internal NativeInput =
                   let pending = event :?> InputEvent
                   if event.cancelable && not composing && not pending.isComposing && pending.inputType = "insertText" &&
                      not (String.IsNullOrEmpty pending.data) && valid () && not readOnly.Peek then
-                      if Commands.insertText pending.data editor then event.preventDefault())
-              listen "input" (fun _ -> input ())
+                      if Brackets.typeText pending.data editor then event.preventDefault())
+              listen "input" input
               listen "compositionstart" (fun _ -> adoptSelection (); composing <- true; stale <- false)
               listen "compositionupdate" (fun e -> preedit.Value <- (e :?> CompositionEvent).data)
               listen "compositionend" (fun e ->
