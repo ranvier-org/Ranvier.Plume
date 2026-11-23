@@ -32,12 +32,12 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ranvier.Plume\Ranvier.Plume.fsproj" />
     <ProjectReference Include="..\..\src\Ranvier.Plume.View\Ranvier.Plume.View.fsproj" />
-    <PackageReference Include="Ranvier.View.WebCore.Sdl" Version="0.2.0" />
+    <PackageReference Include="Ranvier.View.WebCore.Sdl$(RanvierPackageSuffix)" Version="0.2.3" />
   </ItemGroup>
 
   <!-- Hot reload runs under the JIT only, so it is a Debug-only reference, used by "dotnet run" with the dev argument. -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <PackageReference Include="Ranvier.View.WebCore.Hmr" Version="0.1.2" />
+    <PackageReference Include="Ranvier.View.WebCore.Hmr$(RanvierPackageSuffix)" Version="0.1.5" />
   </ItemGroup>
 
   <!-- The build has no CSS step and the output no CSS file: LiveSheet.fs records the rules of each class where

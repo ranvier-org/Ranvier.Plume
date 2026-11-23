@@ -88,8 +88,8 @@ let traced () =
 
     try
         let tests = Path.Combine (work, "tests", "Ranvier.Plume.Tests", "Ranvier.Plume.Tests.fsproj")
-        runIn work "dotnet" "build src/Ranvier.Plume.View/Ranvier.Plume.View.fsproj -c Release -p:RanvierTrace=true --nologo"
-        runIn work "dotnet" (String.Concat ("build \"", tests, "\" -c Release -p:RanvierTrace=true --nologo"))
+        runIn work "dotnet" "build Ranvier.Plume.slnx -c Debug -p:RanvierTrace=true --nologo"
+        runIn work "dotnet" "build Ranvier.Plume.slnx -c Release -p:RanvierTrace=true --nologo"
 
         for framework in frameworksOf tests do
             printfn "Ranvier.Plume.Tests on %s, traced" framework

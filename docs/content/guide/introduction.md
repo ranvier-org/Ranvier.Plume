@@ -8,9 +8,9 @@ description: Choose a package and make a change under a Ranvier owner.
 Install the state library for a headless tool, or install the view package to bring in the editor state and native view dependencies together.
 
 ```sh
-dotnet add package Ranvier.Plume --version 0.3.0
+dotnet add package Ranvier.Plume --version 0.3.1
 # For a project which mounts the editor:
-dotnet add package Ranvier.Plume.View --version 0.3.0
+dotnet add package Ranvier.Plume.View --version 0.3.1
 ```
 
 Both libraries target .NET 8 and .NET 10. For a traced Ranvier application use `Ranvier.Plume.Traced` and `Ranvier.Plume.View.Traced` throughout. The state package also includes Fable sources. The view package ships compiled .NET assemblies.
