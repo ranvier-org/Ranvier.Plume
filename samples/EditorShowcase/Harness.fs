@@ -336,6 +336,9 @@ let private profile (options: Options) nativeTurn =
 
         // Exercise the focused native text-entry path in the same hidden window on either build.
         let nativeInput = Environment.GetEnvironmentVariable "PLUME_PROFILE_INPUT" = "1"
+        let pattern = Environment.GetEnvironmentVariable "PLUME_PROFILE_SEARCH"
+        if not (String.IsNullOrEmpty pattern) then
+            graph.Run(fun () -> Search.setQuery (ValueSome (Search.literal pattern false)) editor |> ignore)
         if nativeInput then
             window.Host.SetFocused true
             graph.Run view.Focus

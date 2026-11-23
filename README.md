@@ -62,7 +62,7 @@ Search.next editor |> ignore
 Search.replaceCurrent "result" editor |> ignore
 ```
 
-Use `Search.extension` in a headless editor. Navigation wraps and replacement text is literal. Replace all creates one undo step. On .NET, `Search.regex` validates a non-backtracking pattern and returns a typed result. Empty matches are skipped. Search indexes the full document on the first lookup for a new text snapshot. Repeated navigation and scrolling reuse that index.
+Use `Search.extension` in a headless editor. Navigation wraps and replacement text is literal. Replace all creates one undo step. On .NET, single-line literal search reuses matches in unchanged rope branches after edits. The first lookup scans all leaves. Multiline literals and regexes use a whole-snapshot index so matches can span lines. `Search.regex` validates a non-backtracking .NET pattern and returns a typed result. Empty matches are skipped. The Fable source uses snapshot caching for literal search.
 
 `Folding.fold firstLine lastLine` uses inclusive, zero-based document lines. Nested folds survive opening their parent. Edits to hidden text and explicit selections inside it open the affected folds. Selection and clipboard operations retain document offsets.
 

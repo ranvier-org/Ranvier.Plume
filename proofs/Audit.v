@@ -23,6 +23,10 @@ Print Assumptions singleton_materialize.
 Print Assumptions fill_frame.
 Print Assumptions wp_scan.
 Print Assumptions search_cut_partition.
+Print Assumptions literal_cannot_cross.
+Print Assumptions greedy_join.
+Print Assumptions literal_leaf_join.
+Print Assumptions search_join_rank.
 Print Assumptions search_cycle.
 Print Assumptions TypedBrackets.balanced_prefix.
 Print Assumptions TypedBrackets.matched_pair.

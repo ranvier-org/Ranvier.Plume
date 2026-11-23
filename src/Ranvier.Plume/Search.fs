@@ -4,22 +4,64 @@ open System
 open System.Runtime.CompilerServices
 open System.Text.RegularExpressions
 
-/// A literal or regular expression with an index per immutable document snapshot.
+[<NoEquality; NoComparison>]
+type internal MatchIndex =
+    | Hits of RangeSet<unit>
+    | Join of width: int * count: int * left: MatchIndex * right: MatchIndex
+
+    member this.Count =
+        match this with
+        | Hits hits -> hits.Count
+        | Join (_, count, _, _) -> count
+
+    member this.At(rank, offset) : struct (int * int) =
+        match this with
+        | Hits hits -> struct (offset + hits.From[rank], offset + hits.To[rank])
+        | Join (width, _, left, right) ->
+            if rank < left.Count then left.At(rank, offset)
+            else right.At(rank - left.Count, offset + width)
+
+    member this.Cut(point, ends, afterEqual) =
+        match this with
+        | Join (width, _, left, right) ->
+            if point < width || (point = width && not afterEqual) then left.Cut(point, ends, afterEqual)
+            else left.Count + right.Cut(point - width, ends, afterEqual)
+        | Hits hits ->
+            let positions = if ends then hits.To else hits.From
+            let mutable lo = 0
+            let mutable hi = positions.Length
+            while lo < hi do
+                let mid = lo + (hi - lo) / 2
+                if positions[mid] < point || (afterEqual && positions[mid] = point) then lo <- mid + 1
+                else hi <- mid
+            lo
+
+/// A literal or regular expression indexed in UTF-16 document coordinates.
 [<Sealed>]
-type SearchQuery internal (scan: string -> RangeSet<unit>) =
+type SearchQuery internal (scan: string -> RangeSet<unit>, leafLocal: bool) =
 #if FABLE_COMPILER
     let mutable cached = ValueNone
     member internal _.Index(doc: Text) =
         match cached with
         | ValueSome (previous, hits) when obj.ReferenceEquals(previous, doc) -> hits
         | _ ->
-            let hits = scan (Text.toString doc)
+            let hits = Hits (scan (Text.toString doc))
             cached <- ValueSome (doc, hits)
             hits
 #else
-    let snapshots = ConditionalWeakTable<Text, RangeSet<unit>>()
-    let build = ConditionalWeakTable<Text, RangeSet<unit>>.CreateValueCallback(fun doc -> scan (Text.toString doc))
-    member internal _.Index(doc: Text) = snapshots.GetValue(doc, build)
+    let nodes = ConditionalWeakTable<Node, MatchIndex>()
+    let rec index node =
+        match nodes.TryGetValue node with
+        | true, hits -> hits
+        | _ ->
+            let hits =
+                match node with
+                | Branch b when leafLocal && b.LineCount > Rope.ChunkLines * 4 ->
+                    let left, right = index b.Left, index b.Right
+                    Join (b.Left.CharLength, left.Count + right.Count, left, right)
+                | _ -> Hits (scan (Rope.getText node))
+            nodes.GetValue(node, fun _ -> hits)
+    member internal _.Index(doc: Text) = index doc.Root
 #endif
 
 [<RequireQualifiedAccess>]
@@ -36,14 +78,14 @@ module Search =
     let literal (pattern: string) caseSensitive =
         if isNull pattern then nullArg "pattern"
         let comparison = if caseSensitive then StringComparison.Ordinal else StringComparison.OrdinalIgnoreCase
-        SearchQuery(fun text ->
+        SearchQuery((fun text ->
             collect (fun add ->
                 if pattern.Length > 0 then
                     let mutable offset = text.IndexOf(pattern, comparison)
                     while offset >= 0 do
                         let finish = offset + pattern.Length
                         add offset finish
-                        offset <- text.IndexOf(pattern, finish, comparison)))
+                        offset <- text.IndexOf(pattern, finish, comparison))), pattern.IndexOfAny(Rope.breakChars) < 0)
 
     /// A culture-invariant, non-backtracking .NET regex. Zero-length hits are omitted.
     /// Invalid patterns, unsupported constructs and Fable targets return an error.
@@ -54,12 +96,12 @@ module Search =
         let options = RegexOptions.NonBacktracking ||| RegexOptions.CultureInvariant
         try
             let matcher = Regex(pattern, if caseSensitive then options else options ||| RegexOptions.IgnoreCase)
-            Ok (SearchQuery(fun text ->
+            Ok (SearchQuery((fun text ->
                 collect (fun add ->
                     let mutable hits = matcher.EnumerateMatches(text.AsSpan())
                     while hits.MoveNext() do
                         let hit = hits.Current
-                        if hit.Length > 0 then add hit.Index (hit.Index + hit.Length))))
+                        if hit.Length > 0 then add hit.Index (hit.Index + hit.Length))), false))
         with
         | :? ArgumentException as error -> Error error.Message
         | :? NotSupportedException as error -> Error error.Message
@@ -87,36 +129,31 @@ module Search =
             true
         else false
 
+    let private empty = Hits RangeSet.empty
+
     let private index (state: EditorState) =
         match EditorState.tryField query state with
         | ValueSome (ValueSome active) -> active.Index state.Doc
-        | _ -> RangeSet.empty
+        | _ -> empty
 
     /// Returns all matches in ascending UTF-16 order. The arrays belong to the caller.
     let matches state =
         let hits = index state
-        RangeSet<unit>(Array.copy hits.From, Array.copy hits.To, Array.zeroCreate hits.Count)
-
-    // The match endpoints are strictly increasing because matches are nonempty and disjoint.
-    let private cut (positions: int[]) point afterEqual =
-        let mutable lo = 0
-        let mutable hi = positions.Length
-        while lo < hi do
-            let mid = lo + (hi - lo) / 2
-            if positions[mid] < point || (afterEqual && positions[mid] = point) then
-                lo <- mid + 1
-            else
-                hi <- mid
-        lo
+        let starts, ends = Array.zeroCreate hits.Count, Array.zeroCreate hits.Count
+        for i in 0 .. hits.Count - 1 do
+            let struct (a, b) = hits.At(i, 0)
+            starts[i] <- a
+            ends[i] <- b
+        RangeSet<unit>(starts, ends, Array.zeroCreate hits.Count)
 
     /// Visits matches intersecting the half-open interval, including ones starting before it.
     let between first last visit state =
         if first < last then
             let hits = index state
-            let mutable i = cut hits.To first true
-            while i < hits.Count && hits.From[i] < last do
-                visit hits.From[i] hits.To[i]
-                i <- i + 1
+            let finish = hits.Cut(last, false, false)
+            for i in hits.Cut(first, true, true) .. finish - 1 do
+                let struct (a, b) = hits.At(i, 0)
+                visit a b
 
     let private navigate forward (editor: Editor) =
         let state = editor.State.Value
@@ -126,12 +163,13 @@ module Search =
             let selection = state.Selection.Main
             let i =
                 if forward then
-                    let after = cut hits.From selection.To false
+                    let after = hits.Cut(selection.To, false, false)
                     if after = hits.Count then 0 else after
                 else
-                    let before = cut hits.To selection.From true
+                    let before = hits.Cut(selection.From, true, true)
                     if before = 0 then hits.Count - 1 else before - 1
-            editor.Dispatch [Tx.selection (EditorSelection.single hits.From[i] hits.To[i]); Tx.scrollIntoView]
+            let struct (a, b) = hits.At(i, 0)
+            editor.Dispatch [Tx.selection (EditorSelection.single a b); Tx.scrollIntoView]
             true
 
     let next editor = navigate true editor
@@ -143,17 +181,18 @@ module Search =
         else
             let hits = index state
             let selection = state.Selection.Main
-            let selected = cut hits.From selection.From false
+            let selected = hits.Cut(selection.From, false, false)
             let first, count =
                 if all then 0, hits.Count
-                elif selected < hits.Count && hits.From[selected] = selection.From && hits.To[selected] = selection.To then selected, 1
+                elif selected < hits.Count && hits.At(selected, 0) = struct (selection.From, selection.To) then selected, 1
                 else 0, 0
             if count = 0 then false
             else
                 let insert = Text.ofString replacement
                 let changes =
-                    [ for i in first .. first + count - 1 ->
-                        { From = hits.From[i]; To = hits.To[i]; Insert = insert } ]
+                    [ for i in first .. first + count - 1 do
+                        let struct (a, b) = hits.At(i, 0)
+                        yield { From = a; To = b; Insert = insert } ]
                 editor.Dispatch [Tx.changes changes; Tx.userEvent "input.replace"; Tx.isolateHistory]
                 true
 

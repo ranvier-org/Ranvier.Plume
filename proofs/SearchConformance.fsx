@@ -28,4 +28,19 @@ let observations () =
                             $"search_prev {list ends} {left}", starts, "prev"
                     let actual = List.findIndex ((=) editor.Selection.Value.Main.From) offsets
                     rows.Add $"Example search_{name}_{caseId}_{left}_{right} : {model} = {actual}. Proof. reflexivity. Qed."
+    let document = Document.create (Text.ofLines [for _ in 1..1200 -> "aaaaa"])
+    let editor = Editor.create document [Search.extension]
+    Search.setQuery (ValueSome (Search.literal "aa" true)) editor |> ignore
+    for step, offset in List.indexed [0; 766; 1537; 2310] do
+        editor.Dispatch [Tx.change {From=offset; To=offset+1; Insert=Text.ofString "ba"}]
+        let raw = Text.toString editor.Text.Value
+        let expected = ResizeArray<int>()
+        let mutable at = raw.IndexOf("aa", System.StringComparison.Ordinal)
+        while at >= 0 do
+            expected.Add at
+            at <- raw.IndexOf("aa", at+2, System.StringComparison.Ordinal)
+        let hits = Search.matches editor.State.Value
+        if hits.Count <> expected.Count then failwith "incremental match count"
+        for rank in [0; 254; 255; 256; 511; 1024; 1536; hits.Count-1] do
+            rows.Add $"Example incremental_{step}_{rank} : {hits.From[rank]} = {expected[rank]}. Proof. reflexivity. Qed."
     List.ofSeq rows

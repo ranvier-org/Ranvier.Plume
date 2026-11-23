@@ -17,6 +17,58 @@ let private spans (editor: Editor) =
 [<Tests>]
 let tests =
     testList "Search" [
+        testCase "a local edit reuses dense matches outside the edited rope leaf" <| fun () ->
+            let raw = String.replicate 20000 "aaaaa\r\n"
+            withEditor raw [] (fun editor ->
+                Search.setQuery (ValueSome (Search.literal "aa" true)) editor |> ignore
+                Search.next editor |> ignore
+                editor.Dispatch [Tx.change {From=0; To=1; Insert=Text.ofString "ba"}]
+                let before = System.GC.GetAllocatedBytesForCurrentThread()
+                Search.next editor |> ignore
+                let allocated = System.GC.GetAllocatedBytesForCurrentThread() - before
+                Expect.isLessThan allocated 150000L "lookup after an edit must not flatten the document or its dense index"
+                let oracle () =
+                    let text = Text.toString editor.Text.Value
+                    let mutable cursor = 0
+                    [| while cursor <= text.Length do
+                           let i = text.IndexOf("aa", cursor, System.StringComparison.Ordinal)
+                           if i < 0 then cursor <- text.Length + 1
+                           else
+                               yield i, i+2
+                               cursor <- i+2 |]
+                for offset in [895; 0; raw.Length / 2; raw.Length - 2] do
+                    editor.Dispatch [Tx.change {From=offset; To=offset+2; Insert=Text.ofString "a\naaa"}]
+                    Expect.equal (spans editor) (oracle ()) "all offsets after splitting or joining chunks"
+                    Commands.undo editor |> ignore
+                    Expect.equal (spans editor) (oracle ()) "undo reuses the correct index")
+
+        testCase "navigation and viewport cuts agree with an ordinal scan at rope boundaries" <| fun () ->
+            let line = "Aaa𐐀😀"
+            let raw = String.concat "\r\n" (List.replicate 1600 line)
+            withEditor raw [] (fun editor ->
+                for pattern in ["aa"; "𐐨"; "\r\nA"; "😀\r\nAa"] do
+                    Search.setQuery (ValueSome (Search.literal pattern false)) editor |> ignore
+                    let positions = ResizeArray<int>()
+                    let mutable found = raw.IndexOf(pattern, System.StringComparison.OrdinalIgnoreCase)
+                    while found >= 0 do
+                        positions.Add found
+                        found <- raw.IndexOf(pattern, found + pattern.Length, System.StringComparison.OrdinalIgnoreCase)
+                    for row in [0; 127; 255; 511; 512; 767; 1023; 1024; 1599] do
+                        for delta in 0 .. line.Length do
+                            let point = row * (line.Length + 2) + delta
+                            let seen = ResizeArray<int>()
+                            Search.between point (point+2) (fun a _ -> seen.Add a) editor.State.Value
+                            let window = positions |> Seq.filter (fun a -> a < point+2 && a+pattern.Length > point)
+                            Expect.sequenceEqual seen window "visible intersection"
+                            let move command =
+                                editor.Dispatch [Tx.selection (EditorSelection.single point point)]
+                                command editor |> ignore
+                                editor.Selection.Value.Main.From
+                            let next = positions |> Seq.tryFind ((<=) point) |> Option.defaultValue positions[0]
+                            let prev = positions |> Seq.tryFindBack (fun a -> a+pattern.Length <= point) |> Option.defaultValue positions[positions.Count-1]
+                            Expect.equal (move Search.next) next "forward rank"
+                            Expect.equal (move Search.previous) prev "backward rank")
+
         testCase "ordinal non-overlapping UTF-16 matches and wrapping navigation" <| fun () ->
             withEditor "😀AAa\r\naa" [] (fun editor ->
                 Search.setQuery (ValueSome (Search.literal "aa" false)) editor |> ignore

@@ -30,3 +30,12 @@ The differential fixture includes every UTF-16 offset in `aλ🙂b`, including t
 ## Editor tools
 
 `Search.v` proves the ordered search partition, shrinking bisection and wrapped navigation. `Folds.v` proves row projection and its inverse for visible lines, including composition of collapsed runs. `Brackets.v` models typed nesting, selected-text wrapping and generated closer ownership. The corresponding F# scripts emit concrete observations from the state package for Rocq to check. The regex engine, native event delivery and DOM geometry are outside these models. The hidden-window tests exercise those integration boundaries.
+
+### Incremental literal search
+
+| Boundary | Verification |
+|---|---|
+| Greedy non-overlapping matches | Pure Rocq. A literal excluding the final line separator of a non-final rope leaf cannot cross the split. Searching each side and rebasing right-hand offsets gives the joined search. |
+| Reading a cached result by rank | Pure Rocq. Child-relative lookup agrees with lookup in the flattened offset sequence. The conformance runner checks compiled editor results after edits around leaf boundaries. |
+| Rope sharing and cache ownership | Unchanged nodes have immutable text. The .NET implementation keys its per-query weak table by node identity. Runtime allocation and differential tests exercise that implementation. |
+| Multiline literals, regular expressions, and Fable snapshot lookup | Existing whole-snapshot path. The separated-leaf proof applies only to single-line literal queries. |

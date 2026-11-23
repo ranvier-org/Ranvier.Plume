@@ -11,7 +11,7 @@
     <Description>The EditorView component of Ranvier.Plume for Ranvier.View: a virtualised text view with pooled rows, gutters, layers, pointer and keyboard input, and a theme over Ranvier.Css.</Description>
     <PackageTags>editor;text;view;ranvier;reactive;fsharp</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <AssemblyVersion>0.0.0.0</AssemblyVersion>
     <RanvierAotClean>true</RanvierAotClean>
     <RanvierExactSiblingVersions>true</RanvierExactSiblingVersions>
